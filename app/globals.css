@@ -1507,16 +1507,23 @@ th.num {
   background: var(--bronze);
 }
 
-.model-cell strong,
-.model-cell span {
+.model-cell > strong,
+.model-cell > span {
   display: block;
 }
 
-.model-cell strong {
+.model-cell > strong {
   font-weight: 700;
 }
 
-.model-cell span {
+.model-cell .badge {
+  margin-left: 4px;
+  padding: 0 7px;
+  font-size: 0.68rem;
+  vertical-align: 1px;
+}
+
+.model-cell > span {
   font-size: 0.82rem;
   color: var(--text-3);
 }
@@ -1569,31 +1576,106 @@ th.num {
   color: var(--text-2);
 }
 
-.filters {
+/* Leaderboard: jump links, then every board in turn. */
+.jump {
   display: grid;
   gap: 12px;
-  margin: 30px 0 18px;
-  padding: 20px 22px;
+  margin: 0 0 8px;
+  padding: 18px 22px;
   border: var(--bw) solid var(--line);
   border-radius: var(--radius);
   background: var(--card);
   box-shadow: var(--shadow);
 }
 
-.filter-row {
+.jump-row {
   display: grid;
-  grid-template-columns: 104px 1fr;
+  grid-template-columns: 150px 1fr;
   align-items: center;
   gap: 12px;
 }
 
-.filter-row > span {
+.jump-row > span {
   font-family: var(--font-mono);
   font-size: 0.74rem;
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--text-2);
+}
+
+.chip-count {
+  min-width: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--bg-2);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  line-height: 1.5;
+  text-align: center;
+  color: var(--text-2);
+}
+
+.board-group {
+  padding-top: 48px;
+}
+
+.group-head {
+  margin-bottom: 8px;
+}
+
+.group-head .kicker {
+  margin-bottom: 6px;
+}
+
+.group-head p {
+  margin: 0;
+  color: var(--text-2);
+}
+
+.board {
+  padding-top: 28px;
+  scroll-margin-top: 84px;
+}
+
+.board-head {
+  margin-bottom: 16px;
+}
+
+.board-head h2 {
+  font-size: clamp(1.4rem, 2.6vw, 1.85rem);
+}
+
+.board-head h2 a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.board-head h2 a:hover {
+  text-decoration: underline;
+  text-decoration-thickness: 3px;
+  text-underline-offset: 4px;
+}
+
+.board-head p {
+  margin: 6px 0 0;
+  font-size: 0.93rem;
+  color: var(--text-3);
+}
+
+.board-foot {
+  margin: 44px 0 0;
+  color: var(--text-2);
+}
+
+.page-head h1 + p + .note {
+  margin-top: 22px;
+}
+
+.note .badge {
+  padding: 1px 8px;
+  font-size: 0.72rem;
+  vertical-align: 1px;
 }
 
 .note {
@@ -2387,7 +2469,7 @@ th.num {
     padding-block: 64px 0;
   }
 
-  .filter-row {
+  .jump-row {
     grid-template-columns: 1fr;
     gap: 6px;
   }

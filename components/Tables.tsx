@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import type { LadderRow, ScrambleRow } from '@/lib/arena/board';
+import type { Board } from '@/lib/arena/rules';
 
 const Rank = ({ i }: { i: number }) => <span className={`medal ${i < 3 ? `m${i + 1}` : ''}`}>{i + 1}</span>;
 
@@ -14,6 +15,10 @@ const TileBar = ({ value, max }: { value: number; max: number }) => {
     </span>
   );
 };
+
+/** Which board a row came from, where Verified and Community share a table. */
+const BoardBadge = ({ board }: { board?: Board }) =>
+  board === 'verified' ? <span className="badge verified">Verified</span> : board === 'community' ? <span className="badge">Community</span> : null;
 
 const ago = (d: Date) => {
   const s = Math.max(1, Math.round((Date.now() - new Date(d).getTime()) / 1000));
@@ -39,13 +44,15 @@ export function LadderTable({ rows, maxLevel, compact = false }: { rows: LadderR
         </thead>
         <tbody>
           {rows.map((r, i) => (
-            <tr key={`${r.model_name}|${r.display_name}`}>
+            <tr key={`${r.board}|${r.model_name}|${r.display_name}`}>
               <td className="rank">
                 <Rank i={i} />
               </td>
               <td className="model-cell">
                 <strong>{r.model_name}</strong>
-                <span>{r.display_name}</span>
+                <span>
+                  {r.display_name} <BoardBadge board={r.board} />
+                </span>
               </td>
               <td className="num">
                 <strong>{r.best}</strong>
@@ -81,13 +88,15 @@ export function ScrambleTable({ rows }: { rows: ScrambleRow[] }) {
         </thead>
         <tbody>
           {rows.map((r, i) => (
-            <tr key={`${r.model_name}|${r.display_name}`}>
+            <tr key={`${r.board}|${r.model_name}|${r.display_name}`}>
               <td className="rank">
                 <Rank i={i} />
               </td>
               <td className="model-cell">
                 <strong>{r.model_name}</strong>
-                <span>{r.display_name}</span>
+                <span>
+                  {r.display_name} <BoardBadge board={r.board} />
+                </span>
               </td>
               <td className="num">
                 {r.solved} / {r.runs}

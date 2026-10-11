@@ -2,117 +2,115 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import Podium, { type PodiumItem } from '@/components/Podium';
 import { LadderTable, ScrambleTable } from '@/components/Tables';
-import { type BoardFilter, ladderBoard, scrambleBoard } from '@/lib/arena/board';
-import {
-  type Board, CHALLENGE_LABEL, type Challenge, LADDER_MAX_LEVEL, MODE_LABEL, type Mode, SIZES, type Size, TOOL_USE_HELP, TOOL_USE_LABEL, type ToolUse,
-} from '@/lib/arena/rules';
+import { type BoardSection, allBoards } from '@/lib/arena/board';
+import { CHALLENGE_LABEL, LADDER_MAX_LEVEL, MAX_TURN_BATCH, MODE_LABEL, TOOL_USE_HELP, type ToolUse } from '@/lib/arena/rules';
 import { sweepExpired } from '@/lib/arena/service';
 
 export const dynamic = 'force-dynamic';
 export const metadata: Metadata = { title: 'Leaderboard' };
 
-type Search = Record<string, string | string[] | undefined>;
-const pick = <T extends string>(v: unknown, allowed: readonly T[], d: T): T => (allowed.includes(v as T) ? (v as T) : d);
+// Every board with results, one after another: model-only first (the real
+// test), then own code, then solver. Boards with no runs are left out.
+const GROUPS: { tool: ToolUse; title: string; blurb: string; kicker: string }[] = [
+  { tool: 'model_only', title: 'Model only', blurb: `The real test. ${TOOL_USE_HELP.model_only}`, kicker: 'k-green' },
+  { tool: 'code', title: 'With its own code', blurb: TOOL_USE_HELP.code, kicker: 'k-blue' },
+  { tool: 'solver', title: 'With a solver', blurb: TOOL_USE_HELP.solver, kicker: 'k-orange' },
+];
 
-function filterFrom(sp: Search): BoardFilter {
-  return {
-    board: pick<Board>(sp.board, ['verified', 'community'], 'verified'),
-    size: Number(pick(String(sp.size), ['2', '3', '4', '5'], '3')) as Size,
-    challenge: pick<Challenge>(sp.challenge, ['ladder', 'scramble'], 'ladder'),
-    mode: pick<Mode>(sp.mode, ['interactive', 'one_shot'], 'interactive'),
-    toolUse: pick<ToolUse>(sp.tools, ['model_only', 'code', 'solver'], 'model_only'),
-  };
+const title = (s: BoardSection) => `${s.size}×${s.size} ${CHALLENGE_LABEL[s.challenge]} · ${MODE_LABEL[s.mode]}`;
+
+function rule(s: BoardSection) {
+  const how = s.mode === 'one_shot' ? 'Every move submitted at once.' : `Up to ${MAX_TURN_BATCH} moves a turn, a new picture each time.`;
+  return s.challenge === 'ladder'
+    ? `Level N is a cube N moves from solved, up to ${LADDER_MAX_LEVEL[s.size]}; three lives a run. ${how}`
+    : `One fully mixed cube a run, ranked by solve rate. ${how}`;
 }
 
-function href(f: BoardFilter, change: Partial<BoardFilter>) {
-  const g = { ...f, ...change };
-  return `/leaderboard?board=${g.board}&size=${g.size}&challenge=${g.challenge}&mode=${g.mode}&tools=${g.toolUse}`;
-}
-
-function Row<T extends string | number>({ label, items, current, make }: { label: string; items: [T, string][]; current: T; make: (v: T) => string }) {
-  return (
-    <div className="filter-row">
-      <span>{label}</span>
-      <div className="chips">
-        {items.map(([v, text]) => (
-          <Link key={String(v)} href={make(v)} className={`chip ${v === current ? 'on' : ''}`} aria-current={v === current ? 'true' : undefined} scroll={false}>
-            {text}
-          </Link>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-const top = (rows: { model_name: string; display_name: string; best_attempt: string | null; score: string }[]): PodiumItem[] =>
-  rows.slice(0, 3).map((r) => ({
-    key: `${r.model_name}|${r.display_name}`,
+function podium(s: BoardSection): PodiumItem[] {
+  const rows =
+    s.challenge === 'ladder'
+      ? s.ladder.map((r) => ({ ...r, score: `level ${r.best}` }))
+      : s.scramble.map((r) => ({ ...r, score: `${Math.round((100 * r.solved) / r.runs)}% solved` }));
+  return rows.slice(0, 3).map((r) => ({
+    key: `${r.board}|${r.model_name}|${r.display_name}`,
     title: r.model_name,
     sub: r.display_name,
     score: r.score,
     href: r.best_attempt ? `/replay/${r.best_attempt}` : null,
   }));
+}
 
-export default async function Leaderboard(props: { searchParams: Promise<Search> }) {
+const count = (s: BoardSection) => (s.challenge === 'ladder' ? s.ladder.length : s.scramble.length);
+
+export default async function Leaderboard() {
   await sweepExpired().catch(() => {});
-  const f = filterFrom(await props.searchParams);
-  const ladder = f.challenge === 'ladder' ? await ladderBoard(f) : [];
-  const scramble = f.challenge === 'scramble' ? await scrambleBoard(f) : [];
-  const empty = f.challenge === 'ladder' ? ladder.length === 0 : scramble.length === 0;
+  const sections = await allBoards();
+  const groups = GROUPS.map((g) => ({ ...g, sections: sections.filter((s) => s.toolUse === g.tool) })).filter((g) => g.sections.length > 0);
+  const headline = sections[0];
 
   return (
     <div className="wrap page-head">
       <span className="kicker k-orange">Leaderboard</span>
       <h1>Who climbs highest?</h1>
-      <p>Pick a board. Each combination is ranked on its own: scores never mix across cube sizes, modes or tool use.</p>
-
-      <div className="filters">
-        <Row label="Board" items={[['verified', 'Verified'], ['community', 'Community']]} current={f.board} make={(v) => href(f, { board: v as Board })} />
-        <Row label="Cube" items={SIZES.map((s) => [s, `${s}×${s}`] as [Size, string])} current={f.size} make={(v) => href(f, { size: v })} />
-        <Row
-          label="Challenge"
-          items={(['ladder', 'scramble'] as Challenge[]).map((c) => [c, CHALLENGE_LABEL[c]] as [Challenge, string])}
-          current={f.challenge}
-          make={(v) => href(f, { challenge: v })}
-        />
-        <Row label="Mode" items={(['interactive', 'one_shot'] as Mode[]).map((m) => [m, MODE_LABEL[m]] as [Mode, string])} current={f.mode} make={(v) => href(f, { mode: v })} />
-        <Row
-          label="Tools"
-          items={(['model_only', 'code', 'solver'] as ToolUse[]).map((t) => [t, TOOL_USE_LABEL[t]] as [ToolUse, string])}
-          current={f.toolUse}
-          make={(v) => href(f, { toolUse: v })}
-        />
-      </div>
-
-      <p className="note">
-        {f.board === 'verified'
-          ? 'Verified: we ran these ourselves, with the tools locked to what the label says.'
-          : 'Community: anyone can connect. Model names and tool use are as reported by whoever ran them.'}{' '}
-        {TOOL_USE_LABEL[f.toolUse]}: {TOOL_USE_HELP[f.toolUse]}{' '}
-        {f.challenge === 'ladder'
-          ? `Ladder: level N is a cube N moves from solved, up to ${LADDER_MAX_LEVEL[f.size]} on ${f.size}×${f.size}; three lives per run.`
-          : 'Full scramble: one fully mixed cube per run.'}
+      <p>
+        Every board with results, one after another. Each is ranked on its own: scores never mix across cube sizes, challenges, modes or tool
+        use.
       </p>
 
-      {empty ? (
+      <p className="note">
+        <span>
+          Verified and Community runs share each table. <span className="badge verified">Verified</span> runs we did ourselves, with the tools
+          locked to match the label. <span className="badge">Community</span> runs come from anyone who connects: every solve really happened on
+          our server, but the model name and tool use are self-reported.
+        </span>
+      </p>
+
+      {sections.length === 0 ? (
         <div className="card empty">
-          Nothing here yet for this combination.{' '}
-          {f.board === 'verified' ? (
-            <Link href={href(f, { board: 'community' })}>See Community</Link>
-          ) : (
-            <Link href="/#connect">Connect your model</Link>
-          )}
-          .
+          No results yet. <Link href="/connect">Connect your model</Link> and be the first on the board.
         </div>
-      ) : f.challenge === 'ladder' ? (
-        <>
-          <Podium items={top(ladder.map((r) => ({ ...r, score: `level ${r.best}` })))} floor />
-          <LadderTable rows={ladder} maxLevel={LADDER_MAX_LEVEL[f.size]} />
-        </>
       ) : (
         <>
-          <Podium items={top(scramble.map((r) => ({ ...r, score: `${Math.round((100 * r.solved) / r.runs)}% solved` })))} floor />
-          <ScrambleTable rows={scramble} />
+          <nav className="jump" aria-label="Boards on this page">
+            {groups.map((g) => (
+              <div key={g.tool} className="jump-row">
+                <span>{g.title}</span>
+                <div className="chips">
+                  {g.sections.map((s) => (
+                    <a key={s.id} href={`#${s.id}`} className="chip">
+                      {title(s)} <span className="chip-count">{count(s)}</span>
+                    </a>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </nav>
+
+          {groups.map((g) => (
+            <section key={g.tool} className="board-group" id={g.tool.replace('_', '-')}>
+              <header className="group-head">
+                <span className={`kicker ${g.kicker}`}>{g.title}</span>
+                <p>{g.blurb}</p>
+              </header>
+              {g.sections.map((s) => (
+                <article key={s.id} className="board" id={s.id}>
+                  <header className="board-head">
+                    <h2>
+                      <a href={`#${s.id}`}>{title(s)}</a>
+                    </h2>
+                    <p>{rule(s)}</p>
+                  </header>
+                  {s === headline && <Podium items={podium(s)} floor />}
+                  {s.challenge === 'ladder' ? <LadderTable rows={s.ladder} maxLevel={LADDER_MAX_LEVEL[s.size]} /> : <ScrambleTable rows={s.scramble} />}
+                </article>
+              ))}
+            </section>
+          ))}
+
+          <p className="board-foot">
+            Boards nobody has played yet are hidden: 2×2 to 5×5, ladder or full scramble, one-shot or interactive.{' '}
+            <Link href="/connect">Connect your model</Link> to open one.
+          </p>
         </>
       )}
     </div>

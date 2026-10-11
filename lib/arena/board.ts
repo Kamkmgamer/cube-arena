@@ -21,6 +21,8 @@ export interface BoardFilter {
 export interface LadderRow {
   model_name: string;
   display_name: string;
+  /** Set on the combined boards, where Verified and Community rows rank together. */
+  board?: Board;
   best: number;
   avg_best: number;
   runs: number;
@@ -49,6 +51,7 @@ async function ladderBoardQuery(f: BoardFilter, limit = 100): Promise<LadderRow[
 export interface ScrambleRow {
   model_name: string;
   display_name: string;
+  board?: Board;
   runs: number;
   solved: number;
   median_moves: number | null;
@@ -71,6 +74,83 @@ async function scrambleBoardQuery(f: BoardFilter, limit = 100): Promise<Scramble
     from x group by model_name, display_name
     order by (count(*) filter (where status = 'solved'))::float / count(*) desc, solved desc, median_moves asc nulls last
     limit ${limit}`);
+}
+
+// ---------------------------------------------------------------------------
+// Every board at once, for the leaderboard page. Verified and Community rows
+// are ranked together (each row says which); nothing else mixes.
+
+export interface BoardSection {
+  /** Anchor on the page, e.g. "3x3-ladder-interactive-model-only". */
+  id: string;
+  challenge: Challenge;
+  size: Size;
+  mode: Mode;
+  toolUse: ToolUse;
+  ladder: LadderRow[];
+  scramble: ScrambleRow[];
+}
+
+type Keyed<T> = T & { size: Size; mode: Mode; tool_use: ToolUse; board: Board };
+
+const ORDER = {
+  tool: ['model_only', 'code', 'solver'] as ToolUse[],
+  challenge: ['ladder', 'scramble'] as Challenge[],
+  size: [3, 2, 4, 5] as Size[],
+  mode: ['interactive', 'one_shot'] as Mode[],
+};
+const verifiedFirst = (a: { board?: Board }, b: { board?: Board }) => (a.board === b.board ? 0 : a.board === 'verified' ? -1 : 1);
+const rate = (r: ScrambleRow) => r.solved / r.runs;
+
+async function allBoardsQuery(): Promise<BoardSection[]> {
+  const [ladder, scramble] = await withDb(async (sql) => {
+    const l = await sql<Keyed<LadderRow>[]>`
+      with r as (select * from cube_arena.runs where challenge = 'ladder'),
+      g as (
+        select size, mode, tool_use, board, model_name, display_name, max(best_level)::int as best,
+               round(avg(best_level), 1)::float as avg_best, count(*)::int as runs, max(updated_at) as last
+        from r group by size, mode, tool_use, board, model_name, display_name
+      )
+      select g.*, (
+        select a.id from r join cube_arena.attempts a on a.run_id = r.id
+        where r.size = g.size and r.mode = g.mode and r.tool_use = g.tool_use and r.board = g.board
+          and r.model_name = g.model_name and r.display_name = g.display_name and a.status = 'solved'
+        order by a.level desc nulls last, a.move_count asc limit 1
+      ) as best_attempt
+      from g`;
+    const s = await sql<Keyed<ScrambleRow>[]>`
+      select r.size, r.mode, r.tool_use, r.board, r.model_name, r.display_name, count(*)::int as runs,
+             count(*) filter (where a.status = 'solved')::int as solved,
+             (percentile_cont(0.5) within group (order by a.move_count) filter (where a.status = 'solved'))::float as median_moves,
+             max(r.updated_at) as last,
+             (array_agg(a.id order by a.move_count) filter (where a.status = 'solved'))[1] as best_attempt
+      from cube_arena.runs r join cube_arena.attempts a on a.run_id = r.id
+      where r.challenge = 'scramble' and r.status = 'finished'
+      group by r.size, r.mode, r.tool_use, r.board, r.model_name, r.display_name`;
+    return [l, s] as const;
+  });
+
+  const sections = new Map<string, BoardSection>();
+  const section = (challenge: Challenge, r: { size: Size; mode: Mode; tool_use: ToolUse }) => {
+    const id = `${r.size}x${r.size}-${challenge}-${r.mode.replace('_', '-')}-${r.tool_use.replace('_', '-')}`;
+    let s = sections.get(id);
+    if (!s) sections.set(id, (s = { id, challenge, size: r.size, mode: r.mode, toolUse: r.tool_use, ladder: [], scramble: [] }));
+    return s;
+  };
+  for (const r of ladder) section('ladder', r).ladder.push(r);
+  for (const r of scramble) section('scramble', r).scramble.push(r);
+
+  for (const s of sections.values()) {
+    s.ladder.sort((a, b) => b.best - a.best || b.avg_best - a.avg_best || verifiedFirst(a, b) || b.runs - a.runs);
+    s.scramble.sort((a, b) => rate(b) - rate(a) || b.solved - a.solved || (a.median_moves ?? 1e9) - (b.median_moves ?? 1e9) || verifiedFirst(a, b));
+  }
+  const rank = (s: BoardSection) => [
+    ORDER.tool.indexOf(s.toolUse), ORDER.challenge.indexOf(s.challenge), ORDER.size.indexOf(s.size), ORDER.mode.indexOf(s.mode),
+  ];
+  return [...sections.values()].sort((a, b) => {
+    const [x, y] = [rank(a), rank(b)];
+    return x[0] - y[0] || x[1] - y[1] || x[2] - y[2] || x[3] - y[3];
+  });
 }
 
 export interface Stats {
@@ -148,6 +228,7 @@ async function replayQuery(id: string): Promise<Replay | null> {
   });
 }
 
+export const allBoards = unstable_cache(allBoardsQuery, ['cube-arena', 'allBoards'], { revalidate: 20 });
 export const ladderBoard = unstable_cache(ladderBoardQuery, ['cube-arena', 'ladderBoard'], { revalidate: 20 });
 export const scrambleBoard = unstable_cache(scrambleBoardQuery, ['cube-arena', 'scrambleBoard'], { revalidate: 20 });
 export const stats = unstable_cache(statsQuery, ['cube-arena', 'stats'], { revalidate: 20 });

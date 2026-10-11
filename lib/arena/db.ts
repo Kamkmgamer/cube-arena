@@ -88,6 +88,44 @@ export interface RunRow {
   /** Hidden by the operator: off every public page. */
   hidden: boolean;
   hidden_reason: string | null;
+  /** Suite tests: the suite, which of its slots, and the run's time budget. */
+  suite_id: string | null;
+  suite_slot: number | null;
+  deadline_at: Date | null;
+  /** Tokens and cost the Verified runner measured. */
+  usage: Usage | null;
+  /** Not stored: what the player should do next when a suite test ends. */
+  suite_note?: string;
+}
+
+export interface Usage {
+  input_tokens?: number;
+  cached_input_tokens?: number;
+  output_tokens?: number;
+  reasoning_tokens?: number;
+  /** As reported by the agent CLI (Claude Code reports an API-equivalent cost). */
+  cost_usd?: number;
+}
+
+export interface SuiteRow {
+  id: string;
+  created_at: Date;
+  updated_at: Date;
+  finished_at: Date | null;
+  kind: 'fast' | 'thorough';
+  version: string;
+  board: 'verified' | 'community';
+  display_name: string;
+  model_name: string;
+  model: string | null;
+  model_id: string | null;
+  effort: string | null;
+  agent: string | null;
+  client: string | null;
+  ip_hash: string | null;
+  status: 'active' | 'finished';
+  hidden: boolean;
+  hidden_reason: string | null;
 }
 
 export interface AttemptRow {

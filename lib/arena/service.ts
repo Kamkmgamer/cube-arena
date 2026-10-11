@@ -7,11 +7,14 @@ import { MoveError, applyMoves, isSolved, moveCost, parseMoves, stateFromString,
 import { fullScramble } from '../cube/random-state';
 import { levelScramble, rng } from '../cube/scramble';
 import { atlasPng } from '../render/png';
-import { type AttemptRow, type RunRow, type Tx, UUID, transaction, withDb } from './db';
+import { type AttemptRow, type RunRow, type SuiteRow, type Tx, UUID, transaction, withDb } from './db';
 import {
   ATTEMPT_MINUTES, type Board, type Challenge, LADDER_LIVES, LADDER_MAX_LEVEL, MAX_INVALID, MAX_LOOKS, MAX_TURN_BATCH, MODE_LABEL, type Mode,
   MODEL_NAME_HELP, RUNS_PER_HOUR, RUNS_PER_HOUR_TOTAL, SCRAMBLE_MOVE_CAP, type Size, TOOL_USE_LABEL, type ToolUse, isFamilyOnly, ladderMoveCap, scoringLine,
+  CHALLENGE_LABEL,
 } from './rules';
+import { gradeSuites } from './suite-data';
+import { SUITES, SUITE_SCORING, type SuiteKind, suiteSeed } from './suites';
 
 export const BASE_URL = (process.env.PUBLIC_BASE_URL || 'https://cube.krnl.studio').replace(/\/$/, '');
 
@@ -29,7 +32,13 @@ export interface Caller {
   ipHash: string | null;
   client: string | null;
   /** Set by the operator's runner on verified runs; overrides what the model says. */
-  operator?: { displayName?: string; modelName?: string; toolUse?: ToolUse };
+  operator?: {
+    displayName?: string;
+    modelName?: string;
+    toolUse?: ToolUse;
+    /** Suite sessions: this session may only play this slot (one fresh agent per test). */
+    suiteSlot?: number;
+  };
 }
 
 /** What a tool call returns: words for the model, and the cube picture when relevant. */
@@ -102,6 +111,7 @@ function data(run: RunRow, a: AttemptRow | null, extra: Record<string, unknown> 
     moves_left: a ? a.move_cap - a.move_count : null,
     replay_url: a ? replayUrl(a) : null,
     image_url: a ? imageUrl(a) : null,
+    ...(run.suite_id ? { suite_id: run.suite_id, suite_test: (run.suite_slot ?? 0) + 1 } : {}),
     ...extra,
   };
 }
@@ -116,7 +126,16 @@ function presentAttempt(run: RunRow, a: AttemptRow, lead: string[] = []): Reply 
 
 async function newAttempt(tx: Tx, run: RunRow): Promise<AttemptRow> {
   const n = run.size;
-  const random = rng(randomInt(0, 2 ** 31));
+  let seed = randomInt(0, 2 ** 31);
+  if (run.suite_id) {
+    // Suite cubes are the same for every model: seeded by suite, slot, level and try.
+    const level = run.challenge === 'ladder' ? run.level : null;
+    const [suite] = await tx<{ kind: SuiteKind; version: string }[]>`select kind, version from cube_arena.suites where id = ${run.suite_id}`;
+    const [{ tries }] = await tx<{ tries: number }[]>`
+      select count(*)::int as tries from cube_arena.attempts where run_id = ${run.id} and level is not distinct from ${level}`;
+    seed = suiteSeed(suite.kind, suite.version, run.suite_slot ?? 0, level, tries);
+  }
+  const random = rng(seed);
   let state: string;
   let scramble: string | null;
   let kind: AttemptRow['scramble_kind'];
@@ -143,7 +162,7 @@ async function newAttempt(tx: Tx, run: RunRow): Promise<AttemptRow> {
       (run_id, seq, size, mode, level, scramble_kind, scramble, certified, initial_state, state, move_cap, deadline_at)
     values
       (${run.id}, ${seq}, ${n}, ${run.mode}, ${run.challenge === 'ladder' ? run.level : null}, ${kind}, ${scramble}, ${certified},
-       ${state}, ${state}, ${cap}, now() + make_interval(mins => ${minutes}::int))
+       ${state}, ${state}, ${cap}, least(now() + make_interval(mins => ${minutes}::int), ${run.deadline_at}::timestamptz))
     returning *`;
   await tx`insert into cube_arena.events (attempt_id, kind, move_count, solved, state) values (${a.id}, 'start', 0, false, ${state})`;
   await tx`update cube_arena.runs set attempts = ${seq}, updated_at = now() where id = ${run.id}`;
@@ -164,6 +183,31 @@ async function finishRun(tx: Tx, run: RunRow, reason: string) {
   run.end_reason = reason;
   await tx`update cube_arena.runs set status = 'finished', end_reason = ${reason}, lives = ${run.lives}, best_level = ${run.best_level},
            solves = ${run.solves}, updated_at = now() where id = ${run.id}`;
+  if (run.suite_id) run.suite_note = await afterSuiteTest(tx, run.suite_id, run.suite_slot ?? 0);
+}
+
+/** A suite test ended: close the suite if it was the last, and say what comes next. */
+async function afterSuiteTest(tx: Tx, suiteId: string, slot: number): Promise<string> {
+  const [suite] = await tx<SuiteRow[]>`select * from cube_arena.suites where id = ${suiteId} for update`;
+  const def = SUITES[suite.kind];
+  const [{ done }] = await tx<{ done: number }[]>`
+    select count(*)::int as done from cube_arena.runs where suite_id = ${suiteId} and status = 'finished'`;
+  await tx`update cube_arena.suites set updated_at = now() where id = ${suiteId}`;
+  if (done < def.slots.length) {
+    return `Suite test ${slot + 1} of ${def.slots.length} is over (${done} done). Call next_test with suite_id "${suiteId}" for the next one.`;
+  }
+  return finishSuite(tx, suite);
+}
+
+/** Closes a suite (tests never played count 0) and returns its result line. */
+async function finishSuite(tx: Tx, suite: SuiteRow): Promise<string> {
+  if (suite.status !== 'finished') {
+    await tx`update cube_arena.suites set status = 'finished', finished_at = now(), updated_at = now() where id = ${suite.id}`;
+    suite.status = 'finished';
+  }
+  const grade = (await gradeSuites(tx, [suite])).get(suite.id);
+  const score = grade?.score ?? 0;
+  return `Suite complete: ${SUITES[suite.kind].name} ${suite.version}, score ${score.toFixed(1)} out of 100. Results: ${BASE_URL}/suites/${suite.id}`;
 }
 
 /** After an attempt ends, move the run on: next level, a retry, or the end. */
@@ -193,6 +237,10 @@ async function advance(tx: Tx, run: RunRow, a: AttemptRow): Promise<AttemptRow |
   }
   await tx`update cube_arena.runs set level = ${run.level}, lives = ${run.lives}, best_level = ${run.best_level}, solves = ${run.solves},
            updated_at = now() where id = ${run.id}`;
+  if (run.deadline_at && run.deadline_at.getTime() <= Date.now()) {
+    await finishRun(tx, run, 'timeout');
+    return null;
+  }
   return newAttempt(tx, run);
 }
 
@@ -220,7 +268,8 @@ function finishedReply(run: RunRow, a: AttemptRow, next: AttemptRow | null, lead
     gave_up: 'Run ended.',
     timeout: 'Run ended: time ran out.',
   };
-  const text = [...lead, end[run.end_reason ?? ''] ?? `Run ended (${run.end_reason}).`, `Replay: ${replayUrl(a)}`, 'Call start_run to play again.'].join('\n');
+  const after = run.suite_id ? (run.suite_note ?? `Call next_test with suite_id "${run.suite_id}" to go on.`) : 'Call start_run to play again.';
+  const text = [...lead, end[run.end_reason ?? ''] ?? `Run ended (${run.end_reason}).`, `Replay: ${replayUrl(a)}`, after].join('\n');
   return { text, png: picture(a), data: data(run, a) };
 }
 
@@ -236,21 +285,30 @@ export interface StartInput {
   tool_use: ToolUse;
 }
 
-export async function startRun(input: StartInput, caller: Caller): Promise<Reply> {
+/** The names a run or suite is filed under: the operator's for Verified, the player's (checked) otherwise. */
+function namesFor(input: { display_name: string; model_name: string }, caller: Caller) {
   const display = caller.operator?.displayName ?? cleanName(input.display_name, 2, 32, 'Display name');
   const model = caller.operator?.modelName ?? cleanName(input.model_name, 1, 64, 'Model name');
   if (!caller.operator && isFamilyOnly(model)) {
     throw new ArenaError('vague_model', `"${model}" is a model family, not an exact model. Use ${MODEL_NAME_HELP}`);
   }
+  return { display, model };
+}
+
+async function checkRate(caller: Caller) {
+  if (caller.board !== 'community') return;
+  const ipHash = caller.ipHash ?? '';
+  const [{ mine, everyone }] = await withDb((sql) => sql<{ mine: number; everyone: number }[]>`
+    select count(*) filter (where ip_hash = ${ipHash})::int as mine, count(*)::int as everyone
+    from cube_arena.runs where board = 'community' and created_at > now() - interval '1 hour'`);
+  if (ipHash && mine >= RUNS_PER_HOUR) throw new ArenaError('slow_down', `Too many new runs from here (limit ${RUNS_PER_HOUR} an hour). Try again later.`);
+  if (everyone >= RUNS_PER_HOUR_TOTAL) throw new ArenaError('slow_down', 'Cube Arena is very busy right now. Try again in a little while.');
+}
+
+export async function startRun(input: StartInput, caller: Caller): Promise<Reply> {
+  const { display, model } = namesFor(input, caller);
   const toolUse = caller.operator?.toolUse ?? input.tool_use;
-  if (caller.board === 'community') {
-    const ipHash = caller.ipHash ?? '';
-    const [{ mine, everyone }] = await withDb((sql) => sql<{ mine: number; everyone: number }[]>`
-      select count(*) filter (where ip_hash = ${ipHash})::int as mine, count(*)::int as everyone
-      from cube_arena.runs where board = 'community' and created_at > now() - interval '1 hour'`);
-    if (ipHash && mine >= RUNS_PER_HOUR) throw new ArenaError('slow_down', `Too many new runs from here (limit ${RUNS_PER_HOUR} an hour). Try again later.`);
-    if (everyone >= RUNS_PER_HOUR_TOTAL) throw new ArenaError('slow_down', 'Cube Arena is very busy right now. Try again in a little while.');
-  }
+  await checkRate(caller);
   return transaction(async (tx) => {
     const lives = input.challenge === 'ladder' ? LADDER_LIVES : 1;
     const level = input.challenge === 'ladder' ? 1 : 0;
@@ -263,6 +321,82 @@ export async function startRun(input: StartInput, caller: Caller): Promise<Reply
     const board = caller.board === 'verified' ? 'Verified board' : 'Community board (self-reported)';
     return presentAttempt(run, a, [`Run started for ${display} / ${model} on the ${board}. Run id: ${run.id}`, scoringLine(run.challenge)]);
   });
+}
+
+// ---------------------------------------------------------------------------
+// Suites
+
+/** Creates a suite. The runner calls this through the operator API, with the exact model and effort. */
+export async function createSuite(
+  kind: SuiteKind,
+  names: { display: string; model: string },
+  caller: Caller,
+  meta: { model?: string | null; model_id?: string | null; effort?: string | null; agent?: string | null } = {},
+): Promise<SuiteRow> {
+  const def = SUITES[kind];
+  const [suite] = await withDb((sql) => sql<SuiteRow[]>`
+    insert into cube_arena.suites (kind, version, board, display_name, model_name, model, model_id, effort, agent, client, ip_hash)
+    values (${kind}, ${def.version}, ${caller.board}, ${names.display}, ${names.model}, ${meta.model ?? null}, ${meta.model_id ?? null},
+            ${meta.effort ?? null}, ${meta.agent ?? null}, ${caller.client}, ${caller.ipHash})
+    returning *`);
+  return suite;
+}
+
+export async function startSuite(kind: SuiteKind, input: { display_name: string; model_name: string }, caller: Caller): Promise<Reply> {
+  if (!SUITES[kind]) throw new ArenaError('bad_suite', 'suite must be "fast" or "thorough".');
+  const names = namesFor(input, caller);
+  await checkRate(caller);
+  const suite = await createSuite(kind, names, caller);
+  return nextTest(suite.id, caller);
+}
+
+/** Starts the suite's next test, or shows the one in progress. */
+export async function nextTest(suiteId: string, caller: Caller): Promise<Reply> {
+  if (!UUID.test(suiteId)) throw new ArenaError('bad_suite', 'That suite_id is not valid. Use the suite_id from start_suite.');
+  return transaction(async (tx) => {
+    const [suite] = await tx<SuiteRow[]>`select * from cube_arena.suites where id = ${suiteId} for update`;
+    if (!suite) throw new ArenaError('bad_suite', 'No suite with that suite_id.');
+    if (suite.board !== caller.board) throw new ArenaError('bad_suite', `That suite is on the ${suite.board} board.`);
+    const def = SUITES[suite.kind];
+    const only = caller.operator?.suiteSlot;
+    const runs = await tx<RunRow[]>`select * from cube_arena.runs where suite_id = ${suite.id} order by suite_slot`;
+
+    const active = runs.find((r) => r.status === 'active');
+    if (active && (only === undefined || active.suite_slot === only)) {
+      const [a] = await tx<AttemptRow[]>`select * from cube_arena.attempts where run_id = ${active.id} and status = 'active' order by seq desc limit 1 for update`;
+      if (a && !(await expireIfLate(tx, active, a))) return presentAttempt(active, a, [`Suite test ${(active.suite_slot ?? 0) + 1} of ${def.slots.length} is in progress:`]);
+    }
+    if (suite.status === 'finished') return { text: await finishSuite(tx, suite), data: { suite_id: suite.id, suite_status: 'finished' } };
+
+    const played = new Set(runs.map((r) => r.suite_slot));
+    const slot = only ?? def.slots.findIndex((_, i) => !played.has(i));
+    if (slot < 0) return { text: await finishSuite(tx, suite), data: { suite_id: suite.id, suite_status: 'finished' } };
+    if (slot >= def.slots.length) throw new ArenaError('bad_suite', `This suite has ${def.slots.length} tests.`);
+    if (played.has(slot)) {
+      throw new ArenaError('suite_test_over', `Suite test ${slot + 1} is over. This session is done; stop here.`);
+    }
+    return startSlot(tx, suite, slot, caller);
+  });
+}
+
+async function startSlot(tx: Tx, suite: SuiteRow, slot: number, caller: Caller): Promise<Reply> {
+  const def = SUITES[suite.kind];
+  const t = def.slots[slot];
+  const lives = t.challenge === 'ladder' ? LADDER_LIVES : 1;
+  const level = t.challenge === 'ladder' ? 1 : 0;
+  const [run] = await tx<RunRow[]>`
+    insert into cube_arena.runs (board, display_name, model_name, tool_use, client, size, mode, challenge, lives, level, ip_hash,
+                                 suite_id, suite_slot, deadline_at)
+    values (${suite.board}, ${suite.display_name}, ${suite.model_name}, 'model_only', ${caller.client}, ${t.size}, ${t.mode}, ${t.challenge},
+            ${lives}, ${level}, ${caller.ipHash}, ${suite.id}, ${slot}, now() + make_interval(mins => ${t.minutes}::int))
+    returning *`;
+  await tx`update cube_arena.suites set updated_at = now() where id = ${suite.id}`;
+  const a = await newAttempt(tx, run);
+  return presentAttempt(run, a, [
+    `${def.name} suite ${def.version}, test ${slot + 1} of ${def.slots.length}: ${t.size}×${t.size} ${CHALLENGE_LABEL[t.challenge]}, ${MODE_LABEL[t.mode]}. ` +
+      `You have ${t.minutes} minutes for this test. suite_id: ${suite.id}`,
+    SUITE_SCORING,
+  ]);
 }
 
 export async function look(attemptId: string): Promise<Reply> {
@@ -390,8 +524,12 @@ export async function giveUp(attemptId: string): Promise<Reply> {
   });
 }
 
-/** End attempts and runs nobody came back to. Cheap; called by pages. */
+/** End attempts and runs nobody came back to, and suites left unfinished. Cheap; called by pages. */
 export async function sweepExpired(): Promise<void> {
+  await withDb((sql) => sql`
+    update cube_arena.suites s set status = 'finished', finished_at = now()
+    where s.status = 'active' and s.updated_at < now() - interval '2 hours'
+      and not exists (select 1 from cube_arena.runs r where r.suite_id = s.id and r.status = 'active')`);
   const late = await withDb((sql) => sql<{ id: string }[]>`
     select id from cube_arena.attempts where status = 'active' and deadline_at < now() order by deadline_at limit 25`);
   for (const { id } of late) {
@@ -423,5 +561,14 @@ export async function stopRun(id: string, detail: string): Promise<boolean> {
     await tx`insert into cube_arena.events (attempt_id, kind, move_count) values (${a.id}, 'timeout', ${a.move_count})`;
     await advance(tx, run, a);
     return true;
+  });
+}
+
+/** Operator only: closes a suite now (tests never played count 0). Returns its result line, or null if there is no such suite. */
+export async function closeSuite(id: string): Promise<string | null> {
+  if (!UUID.test(id)) return null;
+  return transaction(async (tx) => {
+    const [suite] = await tx<SuiteRow[]>`select * from cube_arena.suites where id = ${id} for update`;
+    return suite ? finishSuite(tx, suite) : null;
   });
 }

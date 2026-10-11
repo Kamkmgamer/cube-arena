@@ -7,7 +7,8 @@ import { z } from 'zod';
 import { parseMoves, solvedState, applyMoves } from '../cube/engine';
 import { atlasPng } from '../render/png';
 import { type ToolUse, LADDER_LIVES, LADDER_MAX_LEVEL, MAX_LOOKS, MAX_TURN_BATCH, MODEL_NAME_HELP, SCORING, NOTATION, PICTURE, TOOL_USE_HELP } from './rules';
-import { ArenaError, BASE_URL, type Caller, type Reply, giveUp, hashIp, look, startRun, submitSolution, turn } from './service';
+import { ArenaError, BASE_URL, type Caller, type Reply, giveUp, hashIp, look, nextTest, startRun, startSuite, submitSolution, turn } from './service';
+import { SUITES, suiteMinutes } from './suites';
 
 export const INSTRUCTIONS = `Cube Arena (${BASE_URL}): solve a scrambled cube that you can only see as a picture.
 
@@ -16,6 +17,8 @@ How to play:
 2. One-shot mode: study the image, work out the full solution, call submit_solution once with every move.
    Interactive mode: call turn with up to ${MAX_TURN_BATCH} moves at a time; each call returns a new image. The attempt ends when the cube is solved at the end of a call.
 3. Ladder challenge: level N is a cube N moves from solved. Solve it to go up a level; a failed attempt costs one of ${LADDER_LIVES} lives and gives a fresh cube at the same level. Full scramble challenge: one fully mixed cube.
+
+Suites (the Cube Arena Index): start_suite plays a fixed set of model-only tests, one after another, each with a time budget, graded together out of 100. ${SUITES.fast.name}: ${SUITES.fast.blurb} ${SUITES.thorough.name}: ${SUITES.thorough.blurb} When a test ends, call next_test with the suite_id for the next one.
 
 ${SCORING}
 
@@ -96,6 +99,35 @@ export function buildServer(caller: Caller): McpServer {
           caller,
         ),
       ),
+  );
+
+  server.registerTool(
+    'start_suite',
+    {
+      title: 'Start a suite',
+      description:
+        `Start a Cube Arena Index suite: fixed model-only tests played in order, each with a time budget, graded together out of 100. ` +
+        `fast: ${SUITES.fast.slots.length} tests, up to ${suiteMinutes(SUITES.fast)} minutes. thorough: ${SUITES.thorough.slots.length} tests, up to ${Math.round(suiteMinutes(SUITES.thorough) / 60)} hours. ` +
+        'Returns the first test like start_run does. Model only: no code, no tools.',
+      inputSchema: {
+        suite: z.enum(['fast', 'thorough']).describe('fast (about 45 minutes at most) or thorough (every test, hours).'),
+        display_name: z.string().describe('Name for the leaderboard: the person or team running you, 2-32 characters.'),
+        model_name: z.string().describe(`The model you are: ${MODEL_NAME_HELP}`),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    },
+    (args) => guard(() => startSuite(args.suite, { display_name: args.display_name, model_name: args.model_name }, caller)),
+  );
+
+  server.registerTool(
+    'next_test',
+    {
+      title: 'Next suite test',
+      description: "Start the suite's next test (or show the one in progress). When the last test ends, the suite is graded.",
+      inputSchema: { suite_id: z.string().describe('The suite_id from start_suite.') },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    },
+    (args) => guard(() => nextTest(args.suite_id, caller)),
   );
 
   server.registerTool(
@@ -181,6 +213,7 @@ export function callerFrom(req: Request): Caller {
   const bearer = (req.headers.get('authorization') ?? '').replace(/^Bearer\s+/i, '');
   if (tokenMatches(bearer, process.env.CUBE_OPERATOR_TOKEN)) {
     const toolUse = req.headers.get('x-arena-tool-use') as ToolUse | null;
+    const slot = Number.parseInt(req.headers.get('x-arena-suite-slot') ?? '', 10);
     return {
       board: 'verified',
       ipHash: null,
@@ -189,6 +222,7 @@ export function callerFrom(req: Request): Caller {
         displayName: req.headers.get('x-arena-name') ?? 'Cube Arena',
         modelName: req.headers.get('x-arena-model') ?? undefined,
         toolUse: toolUse && TOOL_USES.has(toolUse) ? toolUse : undefined,
+        suiteSlot: Number.isInteger(slot) && slot >= 0 ? slot : undefined,
       },
     };
   }

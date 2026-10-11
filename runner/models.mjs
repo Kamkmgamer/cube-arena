@@ -7,10 +7,21 @@ import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
-export const CLAUDE_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
+export const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
 
-/** Claude models with no effort setting: their names carry no effort and the CLI gets none. */
-export const CLAUDE_NO_EFFORT = ['claude-sonnet-4-5', 'claude-haiku-4-5'];
+/**
+ * Effort levels each Claude model really has (Anthropic's effort docs); the
+ * rest have all five. Claude Code accepts any level for any model without a
+ * word, so the runner has to refuse the ones a model lacks. An empty list
+ * means no effort setting: the name carries none and the CLI gets none.
+ */
+const CLAUDE_EFFORT_LIMITS = {
+  'claude-opus-4-6': ['low', 'medium', 'high', 'max'],
+  'claude-sonnet-4-6': ['low', 'medium', 'high', 'max'],
+  'claude-opus-4-5': ['low', 'medium', 'high'],
+  'claude-sonnet-4-5': [],
+  'claude-haiku-4-5': [],
+};
 
 const TIERS = { opus: 'Opus', sonnet: 'Sonnet', haiku: 'Haiku', fable: 'Fable' };
 
@@ -57,11 +68,30 @@ export function codexEfforts(slug, models) {
   return levels ? levels.map((l) => l.effort) : null;
 }
 
+/** The efforts a model takes, among low..max ([] = no effort setting; ultra is left out). */
+export function effortsOf(model, codexListing) {
+  if (agentFor(model) === 'claude') return CLAUDE_EFFORT_LIMITS[model] ?? EFFORTS;
+  const listed = codexEfforts(model, codexListing);
+  return listed ? EFFORTS.filter((e) => listed.includes(e)) : EFFORTS;
+}
+
 /** "Claude Opus 5.5 (high)"; just the name for a model with no effort setting (effort null). */
 export const boardLabel = (name, effort) => (effort ? `${name} (${effort})` : name);
 
-/** The effort a run really uses: null for Claude models that have no such setting. */
-export const effortFor = (model, effort) => (CLAUDE_NO_EFFORT.includes(model) ? null : effort);
+/**
+ * Everything about a model id the runner needs, or an error message:
+ * which CLI, the exact name, the effort really used, and the board label.
+ */
+export function resolveModel(model, effort, codexHome) {
+  const agent = agentFor(model);
+  const listing = agent === 'codex' ? codexModels(codexHome) : null;
+  const name = agent === 'claude' ? claudeName(model) : agent === 'codex' ? codexName(model, listing) : null;
+  if (!name) return { error: `Can't tell the exact model from "${model}". Use a full model id (claude-opus-5-5, gpt-6-astra), not an alias.` };
+  const efforts = effortsOf(model, listing);
+  if (efforts.length === 0) return { agent, name, effort: null, label: name };
+  if (!efforts.includes(effort)) return { error: `${model} takes --effort ${efforts.join(', ')}` };
+  return { agent, name, effort, label: boardLabel(name, effort) };
+}
 
 /**
  * Every model the sweep plays, by exact id. Claude ids were checked against

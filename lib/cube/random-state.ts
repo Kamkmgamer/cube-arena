@@ -14,7 +14,16 @@ export interface FullScramble {
 
 export function fullScramble(n: number, random: Rng): FullScramble {
   if (n === 3) {
-    return { state: stateFromString(Cube.random().asString(), 3), moves: null, kind: 'random_state' };
+    // cubejs draws from Math.random; lend it ours so a seed gives the same state
+    // (suites hand every model the same cubes). Synchronous, so nothing else
+    // can run in between.
+    const original = Math.random;
+    Math.random = random;
+    try {
+      return { state: stateFromString(Cube.random().asString(), 3), moves: null, kind: 'random_state' };
+    } finally {
+      Math.random = original;
+    }
   }
   const moves = randomWalk(n, FULL_SCRAMBLE_LENGTH[n], random);
   return { state: applyMoves(solvedState(n), n, moves), moves: moves.map((m) => m.token), kind: 'random_walk' };

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { agentFor, boardLabel, claudeName, codexName, effortFor } from '../runner/models.mjs';
+import { agentFor, boardLabel, claudeName, codexName, effortsOf, resolveModel } from '../runner/models.mjs';
 
 const listed = [
   { slug: 'gpt-6-astra', display_name: 'GPT-6-Astra' },
@@ -30,10 +30,19 @@ describe('Verified board names', () => {
     expect(codexName('gpt', null)).toBeNull();
   });
 
+  it('only offers the efforts a model really has', () => {
+    expect(effortsOf('claude-opus-5-5', null)).toEqual(['low', 'medium', 'high', 'xhigh', 'max']);
+    expect(effortsOf('claude-opus-4-6', null)).toEqual(['low', 'medium', 'high', 'max']);
+    expect(effortsOf('claude-opus-4-5', null)).toEqual(['low', 'medium', 'high']);
+    expect(effortsOf('claude-sonnet-4-5', null)).toEqual([]);
+    expect(effortsOf('gpt-6-luna', [{ slug: 'gpt-6-luna', supported_reasoning_levels: ['low', 'max', 'ultra'].map((effort) => ({ effort })) }])).toEqual(['low', 'max']);
+    expect(resolveModel('claude-opus-4-6', 'xhigh', '/nowhere').error).toMatch(/takes --effort/);
+  });
+
   it('puts the effort in the name', () => {
     expect(boardLabel('GPT-6-Astra', 'xhigh')).toBe('GPT-6-Astra (xhigh)');
-    expect(boardLabel('Claude Haiku 4.5', effortFor('claude-haiku-4-5', 'high'))).toBe('Claude Haiku 4.5');
-    expect(effortFor('claude-opus-5', 'high')).toBe('high');
+    expect(resolveModel('claude-haiku-4-5', 'high', '/nowhere').label).toBe('Claude Haiku 4.5');
+    expect(resolveModel('claude-opus-5', 'max', '/nowhere').label).toBe('Claude Opus 5 (max)');
     expect(agentFor('gpt-6-luna')).toBe('codex');
     expect(agentFor('claude-opus-5')).toBe('claude');
   });

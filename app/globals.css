@@ -1576,44 +1576,120 @@ th.num {
   color: var(--text-2);
 }
 
-/* Leaderboard: jump links, then every board in turn. */
-.jump {
-  display: grid;
-  gap: 12px;
-  margin: 0 0 8px;
-  padding: 18px 22px;
-  border: var(--bw) solid var(--line);
-  border-radius: var(--radius);
-  background: var(--card);
-  box-shadow: var(--shadow);
-}
-
-.jump-row {
-  display: grid;
-  grid-template-columns: 150px 1fr;
+/* Leaderboard: a bar of filter toggles, then every board in turn. Each
+   toggle shows its current value; a transparent native select covers the
+   pill, so clicks, keyboards and phone pickers all just work. */
+.filterbar {
+  position: sticky;
+  top: calc(68px + var(--bw));
+  z-index: 40;
+  display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
+  margin-inline: -6px;
+  padding: 12px 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  background: var(--bg);
 }
 
-.jump-row > span {
+.filterbar::-webkit-scrollbar {
+  display: none;
+}
+
+.toggle {
+  position: relative;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 7px;
+  flex: none;
+  padding: 7px 32px 7px 14px;
+  border: var(--bw) solid var(--line);
+  border-radius: 999px;
+  background: var(--card);
+  box-shadow: var(--shadow-sm);
+  color: var(--text);
+  transition: transform 0.12s ease;
+}
+
+.toggle:hover {
+  transform: translateY(-1px);
+}
+
+.toggle:focus-within {
+  outline: 3px solid var(--blue);
+  outline-offset: 2px;
+}
+
+.toggle::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  right: 14px;
+  width: 7px;
+  height: 7px;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: translateY(-70%) rotate(45deg);
+  pointer-events: none;
+}
+
+.toggle-key {
   font-family: var(--font-mono);
-  font-size: 0.74rem;
+  font-size: 0.66rem;
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--text-2);
+  opacity: 0.7;
 }
 
-.chip-count {
-  min-width: 20px;
-  padding: 0 6px;
-  border-radius: 999px;
-  background: var(--bg-2);
-  font-family: var(--font-mono);
-  font-size: 0.72rem;
-  line-height: 1.5;
-  text-align: center;
-  color: var(--text-2);
+.toggle-value {
+  font-size: 0.92rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.toggle select {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  opacity: 0;
+  font-size: 16px;
+  cursor: pointer;
+}
+
+.toggle.on {
+  background: var(--yellow);
+  color: var(--on-color);
+}
+
+.filter-count {
+  flex: none;
+  margin-left: 6px;
+  font-size: 0.88rem;
+  color: var(--text-3);
+  white-space: nowrap;
+}
+
+.filter-reset {
+  flex: none;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.88rem;
+  font-weight: 700;
+  text-decoration: underline;
+  text-decoration-color: var(--orange);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.card.empty .filter-reset {
+  font-size: inherit;
 }
 
 .board-group {
@@ -2469,10 +2545,7 @@ th.num {
     padding-block: 64px 0;
   }
 
-  .jump-row {
-    grid-template-columns: 1fr;
-    gap: 6px;
-  }
+
 
   .controls .chips {
     margin-left: 0;

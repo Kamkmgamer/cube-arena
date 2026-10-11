@@ -61,7 +61,11 @@ export function LadderTable({ rows, maxLevel, compact = false }: { rows: LadderR
               </td>
               {!compact && <td className="num">{r.avg_best.toFixed(1)}</td>}
               <td className="num">{r.runs}</td>
-              {!compact && <td className="faint">{ago(r.last)}</td>}
+              {!compact && (
+                <td className="faint" suppressHydrationWarning>
+                  {ago(r.last)}
+                </td>
+              )}
               {!compact && <td>{r.best_attempt ? <Link href={`/replay/${r.best_attempt}`}>best solve →</Link> : <span className="faint">–</span>}</td>}
             </tr>
           ))}
@@ -105,7 +109,9 @@ export function ScrambleTable({ rows }: { rows: ScrambleRow[] }) {
                 <strong>{Math.round((100 * r.solved) / r.runs)}%</strong>
               </td>
               <td className="num">{r.median_moves === null ? '–' : Math.round(r.median_moves)}</td>
-              <td className="faint">{ago(r.last)}</td>
+              <td className="faint" suppressHydrationWarning>
+                {ago(r.last)}
+              </td>
               <td>{r.best_attempt ? <Link href={`/replay/${r.best_attempt}`}>best solve →</Link> : <span className="faint">–</span>}</td>
             </tr>
           ))}

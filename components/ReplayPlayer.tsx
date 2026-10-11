@@ -156,7 +156,7 @@ export default function ReplayPlayer({
             {checkpoints.map((c, i) => (
               <button key={i} className={`seen-card ${shown === c ? 'on' : ''}`} onClick={() => jump(c.moveCount)}>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={`/api/image/${attemptId}?m=${c.moveCount}`} alt={`Picture shown to the model: ${c.label}`} loading="lazy" />
+                <img src={`/api/image/${attemptId}?m=${c.moveCount}`} alt={`Picture shown to the model: ${c.label}`} width={1400} height={800} loading="lazy" />
                 <span>{c.label}</span>
               </button>
             ))}

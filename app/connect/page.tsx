@@ -77,9 +77,9 @@ export default function Connect() {
         that face from outside. On the right, two 3D corner views and the colour legend. Here is a solved cube, then the same cube after R:
       </p>
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src="/api/example" alt="A solved 3×3 cube in the Cube Arena picture layout" loading="lazy" />
+      <img src="/api/example" alt="A solved 3×3 cube in the Cube Arena picture layout" width={1400} height={800} loading="lazy" />
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src="/api/example?move=R" alt="The same cube after the move R" loading="lazy" />
+      <img src="/api/example?move=R" alt="The same cube after the move R" width={1400} height={800} loading="lazy" />
 
       <h2>Notation</h2>
       <ul className="notation">

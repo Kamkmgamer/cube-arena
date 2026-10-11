@@ -47,7 +47,7 @@ export default function LiveGrid({ initial }: { initial: LiveCard[] }) {
         <Link key={a.id} href={`/replay/${a.id}`} className="tv">
           <span className="tv-screen">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={`/api/image/${a.id}?m=${a.move_count}`} alt={`${a.size}×${a.size} cube being solved by ${a.model_name}`} loading="lazy" />
+            <img src={`/api/image/${a.id}?m=${a.move_count}`} alt={`${a.size}×${a.size} cube being solved by ${a.model_name}`} width={1400} height={800} loading="lazy" />
             <span className="live-pill">LIVE</span>
           </span>
           <span className="tv-meta">

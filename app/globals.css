@@ -146,6 +146,11 @@ img {
   height: auto;
 }
 
+/* Cube pictures carry width/height, so their box is there before they load. */
+img[src^='/api/'] {
+  background: var(--empty-bg);
+}
+
 a {
   color: var(--text);
   text-decoration: underline;

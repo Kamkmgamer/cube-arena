@@ -66,7 +66,7 @@ export default async function ReplayPage({ params }: Props) {
             {/* While an attempt is live, only the picture is public: never the state itself. */}
             <div className="live-shot">
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={`/api/image/${a.id}?m=${a.move_count}`} alt="The cube as the model currently sees it" />
+              <img src={`/api/image/${a.id}?m=${a.move_count}`} alt="The cube as the model currently sees it" width={1400} height={800} />
               <span className="live-pill">LIVE</span>
             </div>
             <p className="muted" style={{ marginTop: 12 }}>

@@ -9,36 +9,45 @@ import postgres from 'postgres';
 // queued behind it on the same connection never arrives, and both sides wait
 // forever. postgres.js pipelines onto a busy connection whenever no idle one
 // is free, and no setting turns that off without breaking sql.begin. So every
-// caller takes a connection to itself with `reserve()` (which only hands out
-// idle connections, or waits) through withDb or transaction below.
-const g = globalThis as unknown as { __cubeSql?: postgres.Sql };
+// caller gets a connection to itself through withDb or transaction below.
+//
+// Nothing is kept between requests either. A serverless instance is paused
+// between requests, and an idle socket can be dropped silently meanwhile; the
+// next query on it then waits forever (we saw requests hang until the 300 s
+// platform limit). The transaction pooler is built for short-lived clients, so
+// each operation opens its own connection, closes it after, and is cut off if
+// the database has not answered within DEADLINE_MS.
+const DEADLINE_MS = 15_000;
 
-function pool(): postgres.Sql {
-  if (!g.__cubeSql) {
-    const url = process.env.CUBE_DATABASE_URL;
-    if (!url) throw new Error('CUBE_DATABASE_URL is not set');
-    g.__cubeSql = postgres(url, {
-      prepare: false,
-      max: 3,
-      idle_timeout: 20,
-      connect_timeout: 10,
-      ssl: 'require',
-      onnotice: () => {},
-      debug: process.env.CUBE_DB_DEBUG ? (conn, query) => console.log(`[db ${conn}] ${query.replace(/\s+/g, ' ').slice(0, 110)}`) : undefined,
-    });
-  }
-  return g.__cubeSql;
+function connect(): postgres.Sql {
+  const url = process.env.CUBE_DATABASE_URL;
+  if (!url) throw new Error('CUBE_DATABASE_URL is not set');
+  return postgres(url, {
+    prepare: false,
+    max: 1,
+    connect_timeout: 10,
+    ssl: 'require',
+    onnotice: () => {},
+    debug: process.env.CUBE_DB_DEBUG ? (conn, query) => console.log(`[db ${conn}] ${query.replace(/\s+/g, ' ').slice(0, 110)}`) : undefined,
+  });
 }
 
 export type Tx = postgres.Sql;
 
 /** Runs fn on a connection of its own. Await each query in turn: never run two at once on it. */
 export async function withDb<T>(fn: (sql: Tx) => Promise<T>): Promise<T> {
-  const sql = await pool().reserve();
+  const client = connect();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`database did not answer within ${DEADLINE_MS / 1000}s`)), DEADLINE_MS);
+  });
   try {
-    return await fn(sql);
+    return await Promise.race([client.reserve().then(fn), deadline]);
   } finally {
-    sql.release();
+    clearTimeout(timer);
+    // Closes the socket either way; on a timeout this also abandons the query
+    // (an open transaction is rolled back when its connection goes).
+    await client.end({ timeout: 0 }).catch(() => {});
   }
 }
 

@@ -9,8 +9,8 @@ import { levelScramble, rng } from '../cube/scramble';
 import { atlasPng } from '../render/png';
 import { type AttemptRow, type RunRow, type Tx, UUID, transaction, withDb } from './db';
 import {
-  ATTEMPT_MINUTES, type Board, type Challenge, LADDER_LIVES, LADDER_MAX_LEVEL, MAX_INVALID, MAX_TURN_BATCH, MODE_LABEL, type Mode,
-  RUNS_PER_HOUR, SCRAMBLE_MOVE_CAP, type Size, TOOL_USE_LABEL, type ToolUse, ladderMoveCap,
+  ATTEMPT_MINUTES, type Board, type Challenge, LADDER_LIVES, LADDER_MAX_LEVEL, MAX_INVALID, MAX_LOOKS, MAX_TURN_BATCH, MODE_LABEL, type Mode,
+  RUNS_PER_HOUR, RUNS_PER_HOUR_TOTAL, SCRAMBLE_MOVE_CAP, type Size, TOOL_USE_LABEL, type ToolUse, ladderMoveCap,
 } from './rules';
 
 export const BASE_URL = (process.env.PUBLIC_BASE_URL || 'https://cube.krnl.studio').replace(/\/$/, '');
@@ -240,11 +240,13 @@ export async function startRun(input: StartInput, caller: Caller): Promise<Reply
   const display = caller.operator?.displayName ?? cleanName(input.display_name, 2, 32, 'Display name');
   const model = caller.operator?.modelName ?? cleanName(input.model_name, 1, 64, 'Model name');
   const toolUse = caller.operator?.toolUse ?? input.tool_use;
-  if (caller.board === 'community' && caller.ipHash) {
-    const ipHash = caller.ipHash;
-    const [{ count }] = await withDb((sql) => sql<{ count: number }[]>`
-      select count(*)::int as count from cube_arena.runs where ip_hash = ${ipHash} and created_at > now() - interval '1 hour'`);
-    if (count >= RUNS_PER_HOUR) throw new ArenaError('slow_down', `Too many new runs from here (limit ${RUNS_PER_HOUR} an hour). Try again later.`);
+  if (caller.board === 'community') {
+    const ipHash = caller.ipHash ?? '';
+    const [{ mine, everyone }] = await withDb((sql) => sql<{ mine: number; everyone: number }[]>`
+      select count(*) filter (where ip_hash = ${ipHash})::int as mine, count(*)::int as everyone
+      from cube_arena.runs where board = 'community' and created_at > now() - interval '1 hour'`);
+    if (ipHash && mine >= RUNS_PER_HOUR) throw new ArenaError('slow_down', `Too many new runs from here (limit ${RUNS_PER_HOUR} an hour). Try again later.`);
+    if (everyone >= RUNS_PER_HOUR_TOTAL) throw new ArenaError('slow_down', 'Cube Arena is very busy right now. Try again in a little while.');
   }
   return transaction(async (tx) => {
     const lives = input.challenge === 'ladder' ? LADDER_LIVES : 1;
@@ -269,6 +271,7 @@ export async function look(attemptId: string): Promise<Reply> {
       if (next) return presentAttempt(run, next, [`That attempt is over (${a.status}). This is the run's current attempt:`]);
       return finishedReply(run, a, null, [`That attempt is over (${a.status}).`]);
     }
+    if (a.looks >= MAX_LOOKS) throw new ArenaError('look_limit', `That's all ${MAX_LOOKS} looks for this attempt. The last picture you got is still the current cube.`);
     await tx`update cube_arena.attempts set looks = looks + 1 where id = ${a.id}`;
     await tx`insert into cube_arena.events (attempt_id, kind, move_count) values (${a.id}, 'look', ${a.move_count})`;
     return presentAttempt(run, a);

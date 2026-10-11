@@ -34,7 +34,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
   return new Response(new Uint8Array(png), {
     headers: {
       'Content-Type': 'image/png',
-      'Cache-Control': finishedOrPast ? 'public, max-age=86400, immutable' : 'no-store',
+      'Cache-Control': finishedOrPast ? 'public, max-age=86400, s-maxage=31536000, immutable' : 'no-store',
     },
   });
 }

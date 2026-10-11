@@ -6,11 +6,13 @@ import postgres from 'postgres';
 
 const url = process.argv[2] || 'http://127.0.0.1:3060/mcp';
 const sql = postgres(process.env.CUBE_DATABASE_URL, { prepare: false, max: 1, ssl: 'require' });
+// For a protected Vercel preview: VERCEL_PROTECTION_BYPASS=<automation bypass secret>.
+const bypass = process.env.VERCEL_PROTECTION_BYPASS ? { 'x-vercel-protection-bypass': process.env.VERCEL_PROTECTION_BYPASS } : {};
 let id = 0;
 async function rpc(method, params, headers = {}) {
   const res = await fetch(url, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-protocol-version': '2025-06-18', ...headers },
+    headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-protocol-version': '2025-06-18', ...bypass, ...headers },
     body: JSON.stringify({ jsonrpc: '2.0', id: ++id, method, params }),
   });
   const body = await res.json();
@@ -72,7 +74,7 @@ try {
   ok(run.board === 'verified' && run.model_name === 'smoke-verified' && run.tool_use === 'code', 'operator token puts the run on the verified board');
   await call('give_up', { attempt_id: r.data.attempt_id });
 
-  const img = await fetch(url.replace('/mcp', `/api/image/${first}`));
+  const img = await fetch(url.replace('/mcp', `/api/image/${first}`), { headers: bypass });
   ok(img.headers.get('content-type') === 'image/png' && (await img.arrayBuffer()).byteLength > 10000, 'image endpoint serves a PNG');
   console.log('all good; smoke runs are named "Smoke Test" (delete them before launch)', runId);
 } finally {

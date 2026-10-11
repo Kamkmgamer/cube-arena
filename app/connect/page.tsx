@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import ConnectTabs from '@/components/ConnectTabs';
 import CopyButton from '@/components/CopyButton';
 import {
-  ATTEMPT_MINUTES, LADDER_LIVES, LADDER_MAX_LEVEL, MAX_INVALID, MAX_TURN_BATCH, SCRAMBLE_MOVE_CAP, TOOL_USE_HELP,
+  ATTEMPT_MINUTES, LADDER_LIVES, LADDER_MAX_LEVEL, MAX_INVALID, MAX_LOOKS, MAX_TURN_BATCH, SCRAMBLE_MOVE_CAP, TOOL_USE_HELP,
 } from '@/lib/arena/rules';
 import { CLIENTS, GITHUB_URL, MCP_URL, STARTER_PROMPT } from '@/lib/site';
 
@@ -66,7 +66,8 @@ export default function Connect() {
         <li>
           <strong>Limits:</strong> ladder attempts allow 12 moves per level (at least 24); full scrambles allow {SCRAMBLE_MOVE_CAP[3]} on 3×3. Each
           attempt has {ATTEMPT_MINUTES.one_shot} minutes (one-shot) or {ATTEMPT_MINUTES.interactive} minutes (interactive). {MAX_INVALID}{' '}
-          unreadable requests end an attempt; an unreadable one-shot answer is refused without using up the submission.
+          unreadable requests end an attempt; an unreadable one-shot answer is refused without using up the submission. <code>look</code> shows the
+          picture again, up to {MAX_LOOKS} times per attempt.
         </li>
       </ul>
 

@@ -6,7 +6,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { parseMoves, solvedState, applyMoves } from '../cube/engine';
 import { atlasPng } from '../render/png';
-import { type ToolUse, LADDER_LIVES, LADDER_MAX_LEVEL, MAX_TURN_BATCH, NOTATION, PICTURE, TOOL_USE_HELP } from './rules';
+import { type ToolUse, LADDER_LIVES, LADDER_MAX_LEVEL, MAX_LOOKS, MAX_TURN_BATCH, NOTATION, PICTURE, TOOL_USE_HELP } from './rules';
 import { ArenaError, BASE_URL, type Caller, type Reply, giveUp, hashIp, look, startRun, submitSolution, turn } from './service';
 
 export const INSTRUCTIONS = `Cube Arena (${BASE_URL}): solve a scrambled cube that you can only see as a picture.
@@ -17,6 +17,20 @@ How to play:
    Interactive mode: call turn with up to ${MAX_TURN_BATCH} moves at a time; each call returns a new image. The attempt ends when the cube is solved at the end of a call.
 3. Ladder challenge: level N is a cube N moves from solved. Solve it to go up a level; a failed attempt costs one of ${LADDER_LIVES} lives and gives a fresh cube at the same level. Full scramble challenge: one fully mixed cube.
 Call get_rules for the notation and how to read the picture. Results and replays appear on ${BASE_URL}.`;
+
+// get_rules is called by every player and never changes: render its pictures once per server.
+let examples: [string, string] | undefined;
+function examplePictures(): [string, string] {
+  if (!examples) {
+    const solved = solvedState(3);
+    const afterR = applyMoves(solved, 3, parseMoves('R', 3));
+    examples = [
+      atlasPng(solved, 3, { caption: 'example: solved' }).toString('base64'),
+      atlasPng(afterR, 3, { caption: 'example: after R', moves: 1 }).toString('base64'),
+    ];
+  }
+  return examples;
+}
 
 const attemptId = z.string().describe('The attempt_id from the most recent reply.');
 const movesArg = z
@@ -85,7 +99,7 @@ export function buildServer(caller: Caller): McpServer {
     'look',
     {
       title: 'Look at the cube',
-      description: 'Get the current picture of an attempt again. Free: it does not change or count anything.',
+      description: `Get the current picture of an attempt again. Free (costs no moves), up to ${MAX_LOOKS} times per attempt.`,
       inputSchema: { attempt_id: attemptId },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
@@ -134,13 +148,12 @@ export function buildServer(caller: Caller): McpServer {
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
     async () => {
-      const solved = solvedState(3);
-      const afterR = applyMoves(solved, 3, parseMoves('R', 3));
+      const [solved, afterR] = examplePictures();
       return {
         content: [
           { type: 'text' as const, text: `${INSTRUCTIONS}\n\n${PICTURE}\n\n${NOTATION}\n\nExample 1: a solved 3x3. Example 2: the same cube after the single move R (the right face turned clockwise, as seen from the right).` },
-          { type: 'image' as const, data: atlasPng(solved, 3, { caption: 'example: solved' }).toString('base64'), mimeType: 'image/png' },
-          { type: 'image' as const, data: atlasPng(afterR, 3, { caption: 'example: after R', moves: 1 }).toString('base64'), mimeType: 'image/png' },
+          { type: 'image' as const, data: solved, mimeType: 'image/png' },
+          { type: 'image' as const, data: afterR, mimeType: 'image/png' },
         ],
       };
     },

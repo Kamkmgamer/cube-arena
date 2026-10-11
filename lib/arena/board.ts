@@ -1,5 +1,12 @@
 // Read-only queries for the site: leaderboards, stats, feeds, replays.
+//
+// The database is shared with other KRNL apps, so page reads are cached for a
+// few seconds across all servers: a traffic spike costs a handful of queries,
+// not one per visitor. Cached values round-trip through JSON, so dates arrive
+// as strings (the UI always wraps them in new Date()).
 
+import { unstable_cache } from 'next/cache';
+import { cache } from 'react';
 import { type AttemptRow, type EventRow, type RunRow, UUID, withDb } from './db';
 import type { Board, Challenge, Mode, Size, ToolUse } from './rules';
 
@@ -21,7 +28,7 @@ export interface LadderRow {
   best_attempt: string | null;
 }
 
-export async function ladderBoard(f: BoardFilter, limit = 100): Promise<LadderRow[]> {
+async function ladderBoardQuery(f: BoardFilter, limit = 100): Promise<LadderRow[]> {
   return withDb((sql) => sql<LadderRow[]>`
     with r as (
       select * from cube_arena.runs
@@ -49,7 +56,7 @@ export interface ScrambleRow {
   best_attempt: string | null;
 }
 
-export async function scrambleBoard(f: BoardFilter, limit = 100): Promise<ScrambleRow[]> {
+async function scrambleBoardQuery(f: BoardFilter, limit = 100): Promise<ScrambleRow[]> {
   return withDb((sql) => sql<ScrambleRow[]>`
     with x as (
       select r.model_name, r.display_name, r.updated_at, a.id, a.status, a.move_count
@@ -74,7 +81,7 @@ export interface Stats {
   live: number;
 }
 
-export async function stats(): Promise<Stats> {
+async function statsQuery(): Promise<Stats> {
   const [s] = await withDb((sql) => sql<Stats[]>`
     select (select count(*) from cube_arena.runs)::int as runs,
            (select count(*) from cube_arena.attempts where status = 'solved')::int as solves,
@@ -100,7 +107,7 @@ export interface FeedItem {
   challenge: Challenge;
 }
 
-export async function recentFinished(limit = 12): Promise<FeedItem[]> {
+async function recentFinishedQuery(limit = 12): Promise<FeedItem[]> {
   return withDb((sql) => sql<FeedItem[]>`
     select a.id, a.status, a.size, a.mode, a.level, a.move_count, a.finished_at, a.created_at,
            r.model_name, r.display_name, r.board, r.tool_use, r.challenge
@@ -109,7 +116,7 @@ export async function recentFinished(limit = 12): Promise<FeedItem[]> {
     order by a.finished_at desc nulls last limit ${limit}`);
 }
 
-export async function liveAttempts(limit = 24): Promise<FeedItem[]> {
+async function liveAttemptsQuery(limit = 24): Promise<FeedItem[]> {
   return withDb((sql) => sql<FeedItem[]>`
     select a.id, a.status, a.size, a.mode, a.level, a.move_count, a.finished_at, a.created_at,
            r.model_name, r.display_name, r.board, r.tool_use, r.challenge
@@ -126,7 +133,7 @@ export interface Replay {
   siblings: Pick<AttemptRow, 'id' | 'seq' | 'level' | 'status'>[];
 }
 
-export async function replay(id: string): Promise<Replay | null> {
+async function replayQuery(id: string): Promise<Replay | null> {
   if (!UUID.test(id)) return null;
   return withDb(async (sql) => {
     const [attempt] = await sql<AttemptRow[]>`select * from cube_arena.attempts where id = ${id}`;
@@ -140,3 +147,12 @@ export async function replay(id: string): Promise<Replay | null> {
     return { attempt, run, events, siblings };
   });
 }
+
+export const ladderBoard = unstable_cache(ladderBoardQuery, ['cube-arena', 'ladderBoard'], { revalidate: 20 });
+export const scrambleBoard = unstable_cache(scrambleBoardQuery, ['cube-arena', 'scrambleBoard'], { revalidate: 20 });
+export const stats = unstable_cache(statsQuery, ['cube-arena', 'stats'], { revalidate: 20 });
+export const recentFinished = unstable_cache(recentFinishedQuery, ['cube-arena', 'recentFinished'], { revalidate: 10 });
+export const liveAttempts = unstable_cache(liveAttemptsQuery, ['cube-arena', 'liveAttempts'], { revalidate: 3 });
+
+/** Deduped per request (metadata and page both ask). Not cached across requests: live attempts change. */
+export const replay = cache(replayQuery);

@@ -7,5 +7,5 @@ export async function GET(req: Request) {
   const alg = move && /^[URFDLB]['2]?$/.test(move) ? move : '';
   const s = applyMoves(solvedState(3), 3, parseMoves(alg || [], 3));
   const png = atlasPng(s, 3, { caption: alg ? `example: after ${alg}` : 'example: solved', moves: alg ? 1 : 0 });
-  return new Response(new Uint8Array(png), { headers: { 'Content-Type': 'image/png', 'Cache-Control': 'public, max-age=86400' } });
+  return new Response(new Uint8Array(png), { headers: { 'Content-Type': 'image/png', 'Cache-Control': 'public, max-age=86400, s-maxage=604800' } });
 }

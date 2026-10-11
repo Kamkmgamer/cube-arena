@@ -23,6 +23,10 @@ export const MAX_INVALID = 5;
 export const ATTEMPT_MINUTES: Record<Mode, number> = { one_shot: 30, interactive: 60 };
 /** New runs per IP address per hour (community). */
 export const RUNS_PER_HOUR = 30;
+/** New community runs per hour from everyone together: a ceiling on load for the shared database. */
+export const RUNS_PER_HOUR_TOTAL = 300;
+/** `look` calls per attempt (each one renders a picture). */
+export const MAX_LOOKS = 20;
 
 export const TOOL_USE_LABEL: Record<ToolUse, string> = {
   model_only: 'Model only',

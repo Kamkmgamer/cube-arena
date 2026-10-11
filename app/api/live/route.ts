@@ -4,5 +4,6 @@ export const dynamic = 'force-dynamic';
 
 export async function GET() {
   const items = await liveAttempts();
-  return Response.json({ items }, { headers: { 'Cache-Control': 'no-store' } });
+  // Browsers always ask again; the CDN answers everyone from one copy for a few seconds.
+  return Response.json({ items }, { headers: { 'Cache-Control': 'no-store', 'CDN-Cache-Control': 'max-age=3' } });
 }

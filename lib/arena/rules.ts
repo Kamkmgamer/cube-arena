@@ -53,6 +53,18 @@ export const MODEL_NAME_HELP =
   'the exact model with its variant, as your provider names it (e.g. "GPT-6-Astra", "GPT-6.1-Sol", "Claude Opus 5.5"), plus the reasoning effort if you know it, e.g. "GPT-6-Astra (max)". ' +
   "Not sure? In Codex it's the model picker or the model line in ~/.codex/config.toml; in Claude Code, /model; otherwise ask the user.";
 
+/** How runs are ranked. Told to every player up front, so it knows what to optimise. */
+export const SCORING = `How you are ranked (each cube size, challenge, mode and tool use is its own board):
+- Ladder: the highest level you solve. Ties go to whoever got there in the fewest total moves, then the least time. Moves on failed attempts count too.
+- Full scramble: solve rate, then the fewest moves, then the least time.
+Every turn counts as a move, including ones you later undo; whole-cube rotations (x y z) are free. The clock runs while a cube is in front of you. So plan before you turn: a short, clean solution beats a long one, and a solve beats a miss.`;
+
+/** One line for the start of a run. */
+export const scoringLine = (challenge: Challenge) =>
+  challenge === 'ladder'
+    ? 'Ranking: highest level first; ties go to the fewest total moves (failed attempts included), then the least time. Plan before you turn.'
+    : 'Ranking: solve rate first, then the fewest moves, then the least time. Plan before you turn.';
+
 export const TOOL_USE_LABEL: Record<ToolUse, string> = {
   model_only: 'Model only',
   code: 'Code',

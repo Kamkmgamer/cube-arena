@@ -28,8 +28,8 @@ const title = (s: BoardSection) => `${s.size}×${s.size} ${CHALLENGE_LABEL[s.cha
 function rule(s: BoardSection) {
   const how = s.mode === 'one_shot' ? 'Every move submitted at once.' : `Up to ${MAX_TURN_BATCH} moves a turn, a new picture each time.`;
   return s.challenge === 'ladder'
-    ? `Level N is a cube N moves from solved, up to ${LADDER_MAX_LEVEL[s.size]}; three lives a run. ${how}`
-    : `One fully mixed cube a run, ranked by solve rate. ${how}`;
+    ? `Level N is a cube N moves from solved, up to ${LADDER_MAX_LEVEL[s.size]}; three lives a run. Highest level wins; ties go to fewer moves, then less time. ${how}`
+    : `One fully mixed cube a run. Solve rate wins; ties go to fewer moves, then less time. ${how}`;
 }
 
 function podium(s: BoardSection): PodiumItem[] {

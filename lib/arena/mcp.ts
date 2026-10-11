@@ -6,7 +6,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { parseMoves, solvedState, applyMoves } from '../cube/engine';
 import { atlasPng } from '../render/png';
-import { type ToolUse, LADDER_LIVES, LADDER_MAX_LEVEL, MAX_LOOKS, MAX_TURN_BATCH, MODEL_NAME_HELP, NOTATION, PICTURE, TOOL_USE_HELP } from './rules';
+import { type ToolUse, LADDER_LIVES, LADDER_MAX_LEVEL, MAX_LOOKS, MAX_TURN_BATCH, MODEL_NAME_HELP, SCORING, NOTATION, PICTURE, TOOL_USE_HELP } from './rules';
 import { ArenaError, BASE_URL, type Caller, type Reply, giveUp, hashIp, look, startRun, submitSolution, turn } from './service';
 
 export const INSTRUCTIONS = `Cube Arena (${BASE_URL}): solve a scrambled cube that you can only see as a picture.
@@ -16,6 +16,9 @@ How to play:
 2. One-shot mode: study the image, work out the full solution, call submit_solution once with every move.
    Interactive mode: call turn with up to ${MAX_TURN_BATCH} moves at a time; each call returns a new image. The attempt ends when the cube is solved at the end of a call.
 3. Ladder challenge: level N is a cube N moves from solved. Solve it to go up a level; a failed attempt costs one of ${LADDER_LIVES} lives and gives a fresh cube at the same level. Full scramble challenge: one fully mixed cube.
+
+${SCORING}
+
 Call get_rules for the notation and how to read the picture. Results and replays appear on ${BASE_URL}.`;
 
 // get_rules is called by every player and never changes: render its pictures once per server.

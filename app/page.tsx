@@ -5,7 +5,7 @@ import { Feed } from '@/components/Feed';
 import HeroCube from '@/components/HeroCube';
 import Podium, { type PodiumItem } from '@/components/Podium';
 import Ticker from '@/components/Ticker';
-import { ladderBoard, recentFinished, stats } from '@/lib/arena/board';
+import { type LadderRow, allBoards, recentFinished, stats } from '@/lib/arena/board';
 import { LADDER_MAX_LEVEL } from '@/lib/arena/rules';
 import { sweepExpired } from '@/lib/arena/service';
 import { CLIENTS, MCP_URL, STARTER_PROMPT } from '@/lib/site';
@@ -14,14 +14,13 @@ export const dynamic = 'force-dynamic';
 
 export default async function Home() {
   await sweepExpired().catch(() => {});
-  const [s, verified, community, recent] = await Promise.all([
-    stats(),
-    ladderBoard({ board: 'verified', size: 3, mode: 'interactive', challenge: 'ladder', toolUse: 'model_only' }, 5),
-    ladderBoard({ board: 'community', size: 3, mode: 'interactive', challenge: 'ladder', toolUse: 'model_only' }, 5),
-    recentFinished(9),
-  ]);
+  const [s, sections, recent] = await Promise.all([stats(), allBoards(), recentFinished(9)]);
+  // The headline board: 3×3 ladder, interactive, model only. Rows arrive ranked.
+  const headline = sections.find((b) => b.id === '3x3-ladder-interactive-model-only')?.ladder ?? [];
+  const verified = headline.filter((r) => r.board === 'verified');
+  const community = headline.filter((r) => r.board === 'community');
 
-  const toPodium = (rows: typeof verified): PodiumItem[] =>
+  const toPodium = (rows: LadderRow[]): PodiumItem[] =>
     rows.slice(0, 3).map((r) => ({
       key: `${r.model_name}|${r.display_name}`,
       title: r.model_name,

@@ -10,13 +10,16 @@ import { cache } from 'react';
 import { type AttemptRow, type EventRow, type RunRow, UUID, withDb } from './db';
 import type { Board, Challenge, Mode, Size, ToolUse } from './rules';
 
-export interface BoardFilter {
-  board: Board;
-  size: Size;
-  mode: Mode;
-  challenge: Challenge;
-  toolUse: ToolUse;
-}
+// ---------------------------------------------------------------------------
+// Every board at once. Verified and Community rows are ranked together (each
+// row says which); nothing else mixes.
+//
+// Ranking, which the players are told up front (rules.ts SCORING):
+//   ladder:   highest level, then fewest moves to get there, then least time
+//   scramble: solve rate, then fewest moves, then least time
+// "To get there" counts every attempt up to the solve that set the best
+// level, failed ones included. Time is how long each cube was in front of
+// the player (attempt start to finish).
 
 export interface LadderRow {
   model_name: string;
@@ -24,28 +27,12 @@ export interface LadderRow {
   /** Set on the combined boards, where Verified and Community rows rank together. */
   board?: Board;
   best: number;
-  avg_best: number;
+  /** Moves and seconds the best run took to reach its best level; null if it never solved one. */
+  moves: number | null;
+  secs: number | null;
   runs: number;
   last: Date;
   best_attempt: string | null;
-}
-
-async function ladderBoardQuery(f: BoardFilter, limit = 100): Promise<LadderRow[]> {
-  return withDb((sql) => sql<LadderRow[]>`
-    with r as (
-      select * from cube_arena.runs
-      where challenge = 'ladder' and board = ${f.board} and size = ${f.size} and mode = ${f.mode} and tool_use = ${f.toolUse}
-    ), g as (
-      select model_name, display_name, max(best_level)::int as best, round(avg(best_level), 1)::float as avg_best,
-             count(*)::int as runs, max(updated_at) as last
-      from r group by model_name, display_name
-    )
-    select g.*, (
-      select a.id from r join cube_arena.attempts a on a.run_id = r.id
-      where r.model_name = g.model_name and r.display_name = g.display_name and a.status = 'solved'
-      order by a.level desc nulls last, a.move_count asc limit 1
-    ) as best_attempt
-    from g order by best desc, avg_best desc, runs desc, last desc limit ${limit}`);
 }
 
 export interface ScrambleRow {
@@ -55,30 +42,10 @@ export interface ScrambleRow {
   runs: number;
   solved: number;
   median_moves: number | null;
+  median_secs: number | null;
   last: Date;
   best_attempt: string | null;
 }
-
-async function scrambleBoardQuery(f: BoardFilter, limit = 100): Promise<ScrambleRow[]> {
-  return withDb((sql) => sql<ScrambleRow[]>`
-    with x as (
-      select r.model_name, r.display_name, r.updated_at, a.id, a.status, a.move_count
-      from cube_arena.runs r join cube_arena.attempts a on a.run_id = r.id
-      where r.challenge = 'scramble' and r.status = 'finished' and r.board = ${f.board} and r.size = ${f.size}
-        and r.mode = ${f.mode} and r.tool_use = ${f.toolUse}
-    )
-    select model_name, display_name, count(*)::int as runs, count(*) filter (where status = 'solved')::int as solved,
-           (percentile_cont(0.5) within group (order by move_count) filter (where status = 'solved'))::float as median_moves,
-           max(updated_at) as last,
-           (array_agg(id order by move_count) filter (where status = 'solved'))[1] as best_attempt
-    from x group by model_name, display_name
-    order by (count(*) filter (where status = 'solved'))::float / count(*) desc, solved desc, median_moves asc nulls last
-    limit ${limit}`);
-}
-
-// ---------------------------------------------------------------------------
-// Every board at once, for the leaderboard page. Verified and Community rows
-// are ranked together (each row says which); nothing else mixes.
 
 export interface BoardSection {
   /** Anchor on the page, e.g. "3x3-ladder-interactive-model-only". */
@@ -101,29 +68,44 @@ const ORDER = {
 };
 const verifiedFirst = (a: { board?: Board }, b: { board?: Board }) => (a.board === b.board ? 0 : a.board === 'verified' ? -1 : 1);
 const rate = (r: ScrambleRow) => r.solved / r.runs;
+/** Ascending, with "no value" last. */
+const fewer = (a: number | null, b: number | null) => (a ?? Infinity) - (b ?? Infinity) || 0;
+
+export const ladderOrder = (a: LadderRow, b: LadderRow) =>
+  b.best - a.best || fewer(a.moves, b.moves) || fewer(a.secs, b.secs) || verifiedFirst(a, b) || b.runs - a.runs;
+export const scrambleOrder = (a: ScrambleRow, b: ScrambleRow) =>
+  rate(b) - rate(a) || b.solved - a.solved || fewer(a.median_moves, b.median_moves) || fewer(a.median_secs, b.median_secs) || verifiedFirst(a, b);
 
 async function allBoardsQuery(): Promise<BoardSection[]> {
   const [ladder, scramble] = await withDb(async (sql) => {
     const l = await sql<Keyed<LadderRow>[]>`
-      with r as (select * from cube_arena.runs where challenge = 'ladder'),
-      g as (
-        select size, mode, tool_use, board, model_name, display_name, max(best_level)::int as best,
-               round(avg(best_level), 1)::float as avg_best, count(*)::int as runs, max(updated_at) as last
-        from r group by size, mode, tool_use, board, model_name, display_name
+      with best as (
+        -- per run: the solve that set its best level, and what reaching it cost
+        select r.id, r.size, r.mode, r.tool_use, r.board, r.model_name, r.display_name, r.best_level, r.updated_at, b.id as best_attempt,
+               (select sum(a.move_count) from cube_arena.attempts a where a.run_id = r.id and a.seq <= b.seq)::int as moves,
+               (select sum(extract(epoch from a.finished_at - a.created_at)) from cube_arena.attempts a
+                 where a.run_id = r.id and a.seq <= b.seq)::float as secs
+        from cube_arena.runs r
+        left join lateral (
+          select a.id, a.seq from cube_arena.attempts a
+          where a.run_id = r.id and a.status = 'solved' and a.level = r.best_level order by a.seq limit 1
+        ) b on true
+        where r.challenge = 'ladder'
       )
-      select g.*, (
-        select a.id from r join cube_arena.attempts a on a.run_id = r.id
-        where r.size = g.size and r.mode = g.mode and r.tool_use = g.tool_use and r.board = g.board
-          and r.model_name = g.model_name and r.display_name = g.display_name and a.status = 'solved'
-        order by a.level desc nulls last, a.move_count asc limit 1
-      ) as best_attempt
-      from g`;
+      select size, mode, tool_use, board, model_name, display_name,
+             max(best_level)::int as best, count(*)::int as runs, max(updated_at) as last,
+             (array_agg(moves order by best_level desc, moves asc nulls last, secs asc nulls last))[1] as moves,
+             (array_agg(secs order by best_level desc, moves asc nulls last, secs asc nulls last))[1] as secs,
+             (array_agg(best_attempt order by best_level desc, moves asc nulls last, secs asc nulls last))[1] as best_attempt
+      from best group by size, mode, tool_use, board, model_name, display_name`;
     const s = await sql<Keyed<ScrambleRow>[]>`
       select r.size, r.mode, r.tool_use, r.board, r.model_name, r.display_name, count(*)::int as runs,
              count(*) filter (where a.status = 'solved')::int as solved,
              (percentile_cont(0.5) within group (order by a.move_count) filter (where a.status = 'solved'))::float as median_moves,
+             (percentile_cont(0.5) within group (order by extract(epoch from a.finished_at - a.created_at))
+               filter (where a.status = 'solved'))::float as median_secs,
              max(r.updated_at) as last,
-             (array_agg(a.id order by a.move_count) filter (where a.status = 'solved'))[1] as best_attempt
+             (array_agg(a.id order by a.move_count, a.finished_at - a.created_at) filter (where a.status = 'solved'))[1] as best_attempt
       from cube_arena.runs r join cube_arena.attempts a on a.run_id = r.id
       where r.challenge = 'scramble' and r.status = 'finished'
       group by r.size, r.mode, r.tool_use, r.board, r.model_name, r.display_name`;
@@ -141,8 +123,8 @@ async function allBoardsQuery(): Promise<BoardSection[]> {
   for (const r of scramble) section('scramble', r).scramble.push(r);
 
   for (const s of sections.values()) {
-    s.ladder.sort((a, b) => b.best - a.best || b.avg_best - a.avg_best || verifiedFirst(a, b) || b.runs - a.runs);
-    s.scramble.sort((a, b) => rate(b) - rate(a) || b.solved - a.solved || (a.median_moves ?? 1e9) - (b.median_moves ?? 1e9) || verifiedFirst(a, b));
+    s.ladder.sort(ladderOrder);
+    s.scramble.sort(scrambleOrder);
   }
   const rank = (s: BoardSection) => [
     ORDER.tool.indexOf(s.toolUse), ORDER.challenge.indexOf(s.challenge), ORDER.size.indexOf(s.size), ORDER.mode.indexOf(s.mode),
@@ -229,8 +211,6 @@ async function replayQuery(id: string): Promise<Replay | null> {
 }
 
 export const allBoards = unstable_cache(allBoardsQuery, ['cube-arena', 'allBoards'], { revalidate: 20 });
-export const ladderBoard = unstable_cache(ladderBoardQuery, ['cube-arena', 'ladderBoard'], { revalidate: 20 });
-export const scrambleBoard = unstable_cache(scrambleBoardQuery, ['cube-arena', 'scrambleBoard'], { revalidate: 20 });
 export const stats = unstable_cache(statsQuery, ['cube-arena', 'stats'], { revalidate: 20 });
 export const recentFinished = unstable_cache(recentFinishedQuery, ['cube-arena', 'recentFinished'], { revalidate: 10 });
 export const liveAttempts = unstable_cache(liveAttemptsQuery, ['cube-arena', 'liveAttempts'], { revalidate: 3 });

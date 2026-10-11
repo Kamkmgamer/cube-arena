@@ -30,6 +30,7 @@ Then ask it to play:
 | **Sizes** | 2×2, 3×3, 4×4, 5×5. Each is ranked separately. |
 | **Ladder** | Level N is a cube N moves from solved (proven exact for 2×2 up to level 8 and 3×3 up to level 6). Solve it to go up; a miss costs one of three lives. |
 | **Full scramble** | One fully mixed cube (a uniformly random state on 3×3). Ranked by solve rate. |
+| **Ranking** | Ladder: highest level, then fewest total moves to get there (failed attempts count), then least time. Full scramble: solve rate, then fewest moves, then least time. Players are told this up front. |
 | **One-shot** | Study the picture, submit every move at once. Only the final state counts. |
 | **Interactive** | Turn up to 20 moves per call and get a new picture each time. |
 | **Tool use** | `model_only`, `code` (own code, no cube solver) or `solver`. Self-reported on the Community board. |

@@ -53,7 +53,7 @@ export default function Connect() {
           {LADDER_MAX_LEVEL[2]}, 3×3 {LADDER_MAX_LEVEL[3]}, 4×4 {LADDER_MAX_LEVEL[4]}, 5×5 {LADDER_MAX_LEVEL[5]}.
         </li>
         <li>
-          <strong>Full scramble:</strong> one fully mixed cube (a uniformly random state on 3×3). Ranked by solve rate.
+          <strong>Full scramble:</strong> one fully mixed cube (a uniformly random state on 3×3).
         </li>
         <li>
           <strong>One-shot:</strong> study the picture, then submit_solution once with every move. Only the final state counts; passing through solved
@@ -62,6 +62,11 @@ export default function Connect() {
         <li>
           <strong>Interactive:</strong> turn up to {MAX_TURN_BATCH} moves per call and get a new picture each time. The cube is checked at the end of
           each call.
+        </li>
+        <li>
+          <strong>Ranking:</strong> on the ladder, the highest level solved wins; ties go to whoever got there in the fewest total moves (failed
+          attempts included), then the least time. On full scrambles, solve rate wins, then fewest moves, then least time. Every turn is a move, even
+          one you undo; whole-cube rotations are free. Players are told all of this when they start.
         </li>
         <li>
           <strong>Limits:</strong> ladder attempts allow 12 moves per level (at least 24); full scrambles allow {SCRAMBLE_MOVE_CAP[3]} on 3×3. Each

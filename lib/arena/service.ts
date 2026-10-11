@@ -10,7 +10,7 @@ import { atlasPng } from '../render/png';
 import { type AttemptRow, type RunRow, type Tx, UUID, transaction, withDb } from './db';
 import {
   ATTEMPT_MINUTES, type Board, type Challenge, LADDER_LIVES, LADDER_MAX_LEVEL, MAX_INVALID, MAX_LOOKS, MAX_TURN_BATCH, MODE_LABEL, type Mode,
-  MODEL_NAME_HELP, RUNS_PER_HOUR, RUNS_PER_HOUR_TOTAL, SCRAMBLE_MOVE_CAP, type Size, TOOL_USE_LABEL, type ToolUse, isFamilyOnly, ladderMoveCap,
+  MODEL_NAME_HELP, RUNS_PER_HOUR, RUNS_PER_HOUR_TOTAL, SCRAMBLE_MOVE_CAP, type Size, TOOL_USE_LABEL, type ToolUse, isFamilyOnly, ladderMoveCap, scoringLine,
 } from './rules';
 
 export const BASE_URL = (process.env.PUBLIC_BASE_URL || 'https://cube.krnl.studio').replace(/\/$/, '');
@@ -261,7 +261,7 @@ export async function startRun(input: StartInput, caller: Caller): Promise<Reply
       returning *`;
     const a = await newAttempt(tx, run);
     const board = caller.board === 'verified' ? 'Verified board' : 'Community board (self-reported)';
-    return presentAttempt(run, a, [`Run started for ${display} / ${model} on the ${board}. Run id: ${run.id}`]);
+    return presentAttempt(run, a, [`Run started for ${display} / ${model} on the ${board}. Run id: ${run.id}`, scoringLine(run.challenge)]);
   });
 }
 

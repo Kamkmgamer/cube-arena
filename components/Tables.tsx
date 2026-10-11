@@ -20,6 +20,15 @@ const TileBar = ({ value, max }: { value: number; max: number }) => {
 const BoardBadge = ({ board }: { board?: Board }) =>
   board === 'verified' ? <span className="badge verified">Verified</span> : board === 'community' ? <span className="badge">Community</span> : null;
 
+/** 42s, 3m 05s, 1h 02m. */
+const duration = (secs: number | null) => {
+  if (secs === null) return '–';
+  const s = Math.round(secs);
+  if (s < 60) return `${s}s`;
+  if (s < 3600) return `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, '0')}s`;
+  return `${Math.floor(s / 3600)}h ${String(Math.floor((s % 3600) / 60)).padStart(2, '0')}m`;
+};
+
 const ago = (d: Date) => {
   const s = Math.max(1, Math.round((Date.now() - new Date(d).getTime()) / 1000));
   if (s < 3600) return `${Math.max(1, Math.round(s / 60))}m ago`;
@@ -36,7 +45,12 @@ export function LadderTable({ rows, maxLevel, compact = false }: { rows: LadderR
             <th className="rank">#</th>
             <th>Model</th>
             <th className="num">Best level</th>
-            {!compact && <th className="num">Average</th>}
+            <th className="num" title="Moves the best run used to reach its best level, failed attempts included">
+              Moves
+            </th>
+            <th className="num" title="Time the best run took to reach its best level">
+              Time
+            </th>
             <th className="num">Runs</th>
             {!compact && <th>Last played</th>}
             {!compact && <th>Replay</th>}
@@ -59,7 +73,8 @@ export function LadderTable({ rows, maxLevel, compact = false }: { rows: LadderR
                 <span className="faint"> / {maxLevel}</span>
                 <TileBar value={r.best} max={maxLevel} />
               </td>
-              {!compact && <td className="num">{r.avg_best.toFixed(1)}</td>}
+              <td className="num">{r.moves ?? '–'}</td>
+              <td className="num">{duration(r.secs)}</td>
               <td className="num">{r.runs}</td>
               {!compact && (
                 <td className="faint" suppressHydrationWarning>
@@ -86,6 +101,7 @@ export function ScrambleTable({ rows }: { rows: ScrambleRow[] }) {
             <th className="num">Solved</th>
             <th className="num">Solve rate</th>
             <th className="num">Median moves</th>
+            <th className="num">Median time</th>
             <th>Last played</th>
             <th>Replay</th>
           </tr>
@@ -109,6 +125,7 @@ export function ScrambleTable({ rows }: { rows: ScrambleRow[] }) {
                 <strong>{Math.round((100 * r.solved) / r.runs)}%</strong>
               </td>
               <td className="num">{r.median_moves === null ? '–' : Math.round(r.median_moves)}</td>
+              <td className="num">{duration(r.median_secs)}</td>
               <td className="faint" suppressHydrationWarning>
                 {ago(r.last)}
               </td>

@@ -1,0 +1,42 @@
+{
+  "name": "cube-arena",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Cube Arena: can your model solve the cube from a picture? MCP-connected cube-solving arena for AI models.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": "22.x"
+  },
+  "scripts": {
+    "dev": "next dev --hostname 0.0.0.0 --port 3060",
+    "build": "next build",
+    "start": "next start --port 3060",
+    "typecheck": "tsc --noEmit",
+    "lint": "oxlint app components lib scripts runner tests",
+    "test": "vitest run",
+    "db:migrate": "node scripts/migrate.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.30.1",
+    "@react-three/drei": "10.7.9",
+    "@react-three/fiber": "9.8.1",
+    "@resvg/resvg-js": "2.6.2",
+    "cubejs": "1.3.2",
+    "next": "16.3.6",
+    "postgres": "3.4.9",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "three": "0.186.1",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.3",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@types/three": "0.186.0",
+    "oxlint": "1.85.0",
+    "typescript": "7.0.2",
+    "vitest": "5.0.2"
+  }
+}

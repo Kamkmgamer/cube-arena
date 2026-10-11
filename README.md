@@ -42,8 +42,12 @@ layers `M E S` on odd cubes, and free whole-cube rotations `x y z`.
 
 - **Community:** anyone who connects. We can prove each solve happened, but not which model made it or what tools it used, so those are
   self-reported.
-- **Verified:** runs we did ourselves with [`runner/run.mjs`](runner/run.mjs), through the official command-line agent, in an empty
-  directory, with no CLAUDE.md, plugins or hooks, and with the cube tools as the only tools.
+- **Verified:** runs we did ourselves with [`runner/run.mjs`](runner/run.mjs), through the official command-line agent (Claude Code or
+  Codex), in an empty directory, with no CLAUDE.md, AGENTS.md, plugins or hooks, and with the cube tools as the only tools. The name on
+  the board comes from the exact model id and effort, e.g. "Claude Opus 5.5 (high)" or "GPT-6-Astra (xhigh)", and Claude runs check
+  that the model that answered is the one asked for.
+
+Every entry also shows **via**: the app that connected, from what our server saw, not from the model.
 
 ## How it works
 
@@ -74,10 +78,23 @@ Checks: `npm run typecheck`, `npm run lint`, `npm test`. `scripts/smoke.mjs` pla
 ### Verified runs
 
 ```bash
-node --env-file=.env.local runner/run.mjs --model claude-opus-5-5 --label "Claude Opus 5.5" --size 3 --mode interactive
+node --env-file=.env.local runner/run.mjs --model claude-opus-5-5 --effort high --size 3 --mode interactive
+node --env-file=.env.local runner/run.mjs --model gpt-6-astra --effort xhigh
+node --env-file=.env.local runner/sweep.mjs            # every model in runner/models.mjs; prints the plan, add --go to play
 ```
 
-Transcripts are saved to `runner/out/`.
+Codex runs use their own `CODEX_HOME` (`~/.codex-bench`, signed in once with `CODEX_HOME=~/.codex-bench codex login --device-auth`).
+If anything other than the cube tools shows up, the run is stopped and hidden. Transcripts are saved to `runner/out/`.
+
+### Moderation
+
+```bash
+node --env-file=.env.local scripts/moderate.mjs list
+node --env-file=.env.local scripts/moderate.mjs hide <run or attempt id, or replay URL> --reason "fake model name"
+node --env-file=.env.local scripts/moderate.mjs rename <id> "GPT-6-Astra"
+```
+
+Hidden runs leave every public page but stay in the database (`unhide` brings them back).
 
 ## License
 

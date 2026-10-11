@@ -167,7 +167,7 @@ export function buildServer(caller: Caller): McpServer {
 
 const TOOL_USES = new Set<ToolUse>(['model_only', 'code', 'solver']);
 
-function tokenMatches(given: string, expected: string | undefined): boolean {
+export function tokenMatches(given: string, expected: string | undefined): boolean {
   if (!expected || !given) return false;
   const a = Buffer.from(given);
   const b = Buffer.from(expected);

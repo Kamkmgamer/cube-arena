@@ -401,3 +401,27 @@ export async function sweepExpired(): Promise<void> {
     });
   }
 }
+
+/**
+ * Operator only: ends a run now, its open attempt as a timeout. The Verified
+ * runner calls this when it hits its own time limit. `id` is the run id or
+ * any of its attempt ids. Returns false if there was no such run or it had
+ * already ended.
+ */
+export async function stopRun(id: string, detail: string): Promise<boolean> {
+  if (!UUID.test(id)) return false;
+  return transaction(async (tx) => {
+    const [run] = await tx<RunRow[]>`select * from cube_arena.runs
+      where id = coalesce((select run_id from cube_arena.attempts where id = ${id}), ${id}::uuid) for update`;
+    if (!run || run.status !== 'active') return false;
+    const [a] = await tx<AttemptRow[]>`select * from cube_arena.attempts where run_id = ${run.id} and status = 'active' order by seq desc limit 1 for update`;
+    if (!a) {
+      await finishRun(tx, run, 'timeout');
+      return true;
+    }
+    await endAttempt(tx, a, 'timeout', detail);
+    await tx`insert into cube_arena.events (attempt_id, kind, move_count) values (${a.id}, 'timeout', ${a.move_count})`;
+    await advance(tx, run, a);
+    return true;
+  });
+}

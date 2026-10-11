@@ -7,6 +7,7 @@
 
 import { unstable_cache } from 'next/cache';
 import { cache } from 'react';
+import { clientLabel } from './clients';
 import { type AttemptRow, type EventRow, type RunRow, UUID, withDb } from './db';
 import type { Board, Challenge, Mode, Size, ToolUse } from './rules';
 
@@ -27,6 +28,8 @@ export interface LadderRow {
   /** Set on the combined boards, where Verified and Community rows rank together. */
   board?: Board;
   best: number;
+  /** The app that connected for the best run, from its User-Agent (see clients.ts). */
+  via: string;
   /** Moves and seconds the best run took to reach its best level; null if it never solved one. */
   moves: number | null;
   secs: number | null;
@@ -41,6 +44,7 @@ export interface ScrambleRow {
   board?: Board;
   runs: number;
   solved: number;
+  via: string;
   median_moves: number | null;
   median_secs: number | null;
   last: Date;
@@ -58,7 +62,7 @@ export interface BoardSection {
   scramble: ScrambleRow[];
 }
 
-type Keyed<T> = T & { size: Size; mode: Mode; tool_use: ToolUse; board: Board };
+type Keyed<T> = T & { size: Size; mode: Mode; tool_use: ToolUse; board: Board; client?: string | null };
 
 const ORDER = {
   tool: ['model_only', 'code', 'solver'] as ToolUse[],
@@ -81,7 +85,7 @@ async function allBoardsQuery(): Promise<BoardSection[]> {
     const l = await sql<Keyed<LadderRow>[]>`
       with best as (
         -- per run: the solve that set its best level, and what reaching it cost
-        select r.id, r.size, r.mode, r.tool_use, r.board, r.model_name, r.display_name, r.best_level, r.updated_at, b.id as best_attempt,
+        select r.id, r.size, r.mode, r.tool_use, r.board, r.model_name, r.display_name, r.best_level, r.updated_at, r.client, b.id as best_attempt,
                (select sum(a.move_count) from cube_arena.attempts a where a.run_id = r.id and a.seq <= b.seq)::int as moves,
                (select sum(extract(epoch from a.finished_at - a.created_at)) from cube_arena.attempts a
                  where a.run_id = r.id and a.seq <= b.seq)::float as secs
@@ -90,13 +94,14 @@ async function allBoardsQuery(): Promise<BoardSection[]> {
           select a.id, a.seq from cube_arena.attempts a
           where a.run_id = r.id and a.status = 'solved' and a.level = r.best_level order by a.seq limit 1
         ) b on true
-        where r.challenge = 'ladder'
+        where r.challenge = 'ladder' and not r.hidden
       )
       select size, mode, tool_use, board, model_name, display_name,
              max(best_level)::int as best, count(*)::int as runs, max(updated_at) as last,
              (array_agg(moves order by best_level desc, moves asc nulls last, secs asc nulls last))[1] as moves,
              (array_agg(secs order by best_level desc, moves asc nulls last, secs asc nulls last))[1] as secs,
-             (array_agg(best_attempt order by best_level desc, moves asc nulls last, secs asc nulls last))[1] as best_attempt
+             (array_agg(best_attempt order by best_level desc, moves asc nulls last, secs asc nulls last))[1] as best_attempt,
+             (array_agg(client order by best_level desc, moves asc nulls last, secs asc nulls last))[1] as client
       from best group by size, mode, tool_use, board, model_name, display_name`;
     const s = await sql<Keyed<ScrambleRow>[]>`
       select r.size, r.mode, r.tool_use, r.board, r.model_name, r.display_name, count(*)::int as runs,
@@ -105,9 +110,10 @@ async function allBoardsQuery(): Promise<BoardSection[]> {
              (percentile_cont(0.5) within group (order by extract(epoch from a.finished_at - a.created_at))
                filter (where a.status = 'solved'))::float as median_secs,
              max(r.updated_at) as last,
-             (array_agg(a.id order by a.move_count, a.finished_at - a.created_at) filter (where a.status = 'solved'))[1] as best_attempt
+             (array_agg(a.id order by a.move_count, a.finished_at - a.created_at) filter (where a.status = 'solved'))[1] as best_attempt,
+             coalesce((array_agg(r.client order by a.move_count) filter (where a.status = 'solved'))[1], max(r.client)) as client
       from cube_arena.runs r join cube_arena.attempts a on a.run_id = r.id
-      where r.challenge = 'scramble' and r.status = 'finished'
+      where r.challenge = 'scramble' and r.status = 'finished' and not r.hidden
       group by r.size, r.mode, r.tool_use, r.board, r.model_name, r.display_name`;
     return [l, s] as const;
   });
@@ -119,8 +125,9 @@ async function allBoardsQuery(): Promise<BoardSection[]> {
     if (!s) sections.set(id, (s = { id, challenge, size: r.size, mode: r.mode, toolUse: r.tool_use, ladder: [], scramble: [] }));
     return s;
   };
-  for (const r of ladder) section('ladder', r).ladder.push(r);
-  for (const r of scramble) section('scramble', r).scramble.push(r);
+  // Only the readable label leaves the server, not the raw User-Agent.
+  for (const { client, ...r } of ladder) section('ladder', r).ladder.push({ ...r, via: clientLabel(client) });
+  for (const { client, ...r } of scramble) section('scramble', r).scramble.push({ ...r, via: clientLabel(client) });
 
   for (const s of sections.values()) {
     s.ladder.sort(ladderOrder);
@@ -145,11 +152,13 @@ export interface Stats {
 
 async function statsQuery(): Promise<Stats> {
   const [s] = await withDb((sql) => sql<Stats[]>`
-    select (select count(*) from cube_arena.runs)::int as runs,
-           (select count(*) from cube_arena.attempts where status = 'solved')::int as solves,
-           (select count(distinct lower(model_name)) from cube_arena.runs)::int as models,
-           coalesce((select max(best_level) from cube_arena.runs where size = 3 and challenge = 'ladder'), 0)::int as best3,
-           (select count(*) from cube_arena.attempts where status = 'active' and deadline_at > now())::int as live`);
+    with r as (select * from cube_arena.runs where not hidden),
+         a as (select a.* from cube_arena.attempts a join r on r.id = a.run_id)
+    select (select count(*) from r)::int as runs,
+           (select count(*) from a where status = 'solved')::int as solves,
+           (select count(distinct lower(model_name)) from r)::int as models,
+           coalesce((select max(best_level) from r where size = 3 and challenge = 'ladder'), 0)::int as best3,
+           (select count(*) from a where status = 'active' and deadline_at > now())::int as live`);
   return s;
 }
 
@@ -174,7 +183,7 @@ async function recentFinishedQuery(limit = 12): Promise<FeedItem[]> {
     select a.id, a.status, a.size, a.mode, a.level, a.move_count, a.finished_at, a.created_at,
            r.model_name, r.display_name, r.board, r.tool_use, r.challenge
     from cube_arena.attempts a join cube_arena.runs r on r.id = a.run_id
-    where a.status in ('solved', 'failed', 'invalid')
+    where a.status in ('solved', 'failed', 'invalid') and not r.hidden
     order by a.finished_at desc nulls last limit ${limit}`);
 }
 
@@ -183,7 +192,7 @@ async function liveAttemptsQuery(limit = 24): Promise<FeedItem[]> {
     select a.id, a.status, a.size, a.mode, a.level, a.move_count, a.finished_at, a.created_at,
            r.model_name, r.display_name, r.board, r.tool_use, r.challenge
     from cube_arena.attempts a join cube_arena.runs r on r.id = a.run_id
-    where a.status = 'active' and a.deadline_at > now()
+    where a.status = 'active' and a.deadline_at > now() and not r.hidden
     order by a.created_at desc limit ${limit}`);
 }
 
@@ -201,6 +210,7 @@ async function replayQuery(id: string): Promise<Replay | null> {
     const [attempt] = await sql<AttemptRow[]>`select * from cube_arena.attempts where id = ${id}`;
     if (!attempt) return null;
     const [run] = await sql<RunRow[]>`select * from cube_arena.runs where id = ${attempt.run_id}`;
+    if (run.hidden) return null;
     const events = await sql<Replay['events']>`
       select kind, move_count, solved, at, error, moves from cube_arena.events
       where attempt_id = ${id} and kind <> 'look' order by id`;

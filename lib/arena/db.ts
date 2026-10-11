@@ -85,6 +85,9 @@ export interface RunRow {
   best_level: number;
   attempts: number;
   solves: number;
+  /** Hidden by the operator: off every public page. */
+  hidden: boolean;
+  hidden_reason: string | null;
 }
 
 export interface AttemptRow {

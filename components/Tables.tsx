@@ -65,7 +65,7 @@ export function LadderTable({ rows, maxLevel, compact = false }: { rows: LadderR
               <td className="model-cell">
                 <strong>{r.model_name}</strong>
                 <span>
-                  {r.display_name} <BoardBadge board={r.board} />
+                  {r.display_name} · via {r.via} <BoardBadge board={r.board} />
                 </span>
               </td>
               <td className="num">
@@ -115,7 +115,7 @@ export function ScrambleTable({ rows }: { rows: ScrambleRow[] }) {
               <td className="model-cell">
                 <strong>{r.model_name}</strong>
                 <span>
-                  {r.display_name} <BoardBadge board={r.board} />
+                  {r.display_name} · via {r.via} <BoardBadge board={r.board} />
                 </span>
               </td>
               <td className="num">

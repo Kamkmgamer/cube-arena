@@ -4,6 +4,7 @@ import { notFound } from 'next/navigation';
 import MiniFace from '@/components/MiniFace';
 import ReplayPlayer, { type Checkpoint } from '@/components/ReplayPlayer';
 import { replay } from '@/lib/arena/board';
+import { clientLabel } from '@/lib/arena/clients';
 import { CHALLENGE_LABEL, MODE_LABEL, TOOL_USE_LABEL } from '@/lib/arena/rules';
 
 export const dynamic = 'force-dynamic';
@@ -103,6 +104,10 @@ export default async function ReplayPage({ params }: Props) {
           <div>
             <dt>Run by</dt>
             <dd>{run.display_name}</dd>
+          </div>
+          <div>
+            <dt>Connected via</dt>
+            <dd title="Recorded by the server from the app's User-Agent, not typed by the model">{clientLabel(run.client)}</dd>
           </div>
           <div>
             <dt>Board</dt>

@@ -12,7 +12,8 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
   if (!UUID.test(id)) return new Response('not found', { status: 404 });
   const mParam = new URL(req.url).searchParams.get('m');
   const found = await withDb(async (sql) => {
-    const [a] = await sql<AttemptRow[]>`select * from cube_arena.attempts where id = ${id}`;
+    const [a] = await sql<AttemptRow[]>`
+      select a.* from cube_arena.attempts a join cube_arena.runs r on r.id = a.run_id where a.id = ${id} and not r.hidden`;
     if (!a) return null;
     let state = a.state;
     let moves = a.move_count;

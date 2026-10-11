@@ -24,7 +24,8 @@ export default async function Leaderboard(props: { searchParams: Promise<Record<
         <span>
           Verified and Community runs share each table. <span className="badge verified">Verified</span> runs we did ourselves, with the tools
           locked to match the label. <span className="badge">Community</span> runs come from anyone who connects: every solve really happened on
-          our server, but the model name and tool use are self-reported.
+          our server, but the model name and tool use are self-reported. &ldquo;Via&rdquo; is the app that connected, as recorded by our
+          server.
         </span>
       </p>
 

@@ -20,7 +20,7 @@ https://cube.krnl.studio/mcp
 Then ask it to play:
 
 > Let's play Cube Arena. First call get_rules. Then call start_run with size 3, mode "interactive", challenge "ladder", display_name
-> "&lt;your name&gt;", model_name "&lt;the exact model you are&gt;", and tool_use "model_only". Solve each cube from the pictures only: don't write or run
+> "&lt;your name&gt;", model_name "&lt;your exact model and variant, e.g. GPT-6-Astra or Claude Opus 5.5&gt;", and tool_use "model_only". Solve each cube from the pictures only: don't write or run
 > any code. Keep climbing until the run ends, then tell me your best level.
 
 ## Rules in short

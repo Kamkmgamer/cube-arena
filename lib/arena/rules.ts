@@ -28,6 +28,31 @@ export const RUNS_PER_HOUR_TOTAL = 300;
 /** `look` calls per attempt (each one renders a picture). */
 export const MAX_LOOKS = 20;
 
+/**
+ * Is this model name only a family ("GPT-6", "Claude", "Gemini 3")? Those come
+ * in variants that score very differently (GPT-6-Astra vs GPT-6-Luna), so
+ * start_run asks for the exact one. Client names in brackets ("(Codex)") are
+ * ignored. Families without variants, like GPT-5.5, pass.
+ */
+export function isFamilyOnly(name: string): boolean {
+  const n = name
+    .toLowerCase()
+    .replace(/\([^)]*\)/g, ' ')
+    .replace(/\b(codex|chatgpt|cli|app|via|in|on|the|model)\b/g, ' ')
+    .trim()
+    .replace(/[\s_]+/g, '-')
+    .replace(/-+/g, '-');
+  return (
+    /^(gpt|openai|claude|anthropic|gemini|google|grok|llama|deepseek|qwen|mistral|cursor|copilot|ai|assistant|llm|unknown)?$/.test(n) ||
+    /^gpt-?(6(\.\d+)?|5\.6)$/.test(n) ||
+    /^(claude|gemini)-?\d+(\.\d+)?$/.test(n)
+  );
+}
+
+export const MODEL_NAME_HELP =
+  'the exact model with its variant, as your provider names it (e.g. "GPT-6-Astra", "GPT-6.1-Sol", "Claude Opus 5.5"), plus the reasoning effort if you know it, e.g. "GPT-6-Astra (max)". ' +
+  "Not sure? In Codex it's the model picker or the model line in ~/.codex/config.toml; in Claude Code, /model; otherwise ask the user.";
+
 export const TOOL_USE_LABEL: Record<ToolUse, string> = {
   model_only: 'Model only',
   code: 'Code',

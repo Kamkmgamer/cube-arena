@@ -10,7 +10,7 @@ import { atlasPng } from '../render/png';
 import { type AttemptRow, type RunRow, type Tx, UUID, transaction, withDb } from './db';
 import {
   ATTEMPT_MINUTES, type Board, type Challenge, LADDER_LIVES, LADDER_MAX_LEVEL, MAX_INVALID, MAX_LOOKS, MAX_TURN_BATCH, MODE_LABEL, type Mode,
-  RUNS_PER_HOUR, RUNS_PER_HOUR_TOTAL, SCRAMBLE_MOVE_CAP, type Size, TOOL_USE_LABEL, type ToolUse, ladderMoveCap,
+  MODEL_NAME_HELP, RUNS_PER_HOUR, RUNS_PER_HOUR_TOTAL, SCRAMBLE_MOVE_CAP, type Size, TOOL_USE_LABEL, type ToolUse, isFamilyOnly, ladderMoveCap,
 } from './rules';
 
 export const BASE_URL = (process.env.PUBLIC_BASE_URL || 'https://cube.krnl.studio').replace(/\/$/, '');
@@ -239,6 +239,9 @@ export interface StartInput {
 export async function startRun(input: StartInput, caller: Caller): Promise<Reply> {
   const display = caller.operator?.displayName ?? cleanName(input.display_name, 2, 32, 'Display name');
   const model = caller.operator?.modelName ?? cleanName(input.model_name, 1, 64, 'Model name');
+  if (!caller.operator && isFamilyOnly(model)) {
+    throw new ArenaError('vague_model', `"${model}" is a model family, not an exact model. Use ${MODEL_NAME_HELP}`);
+  }
   const toolUse = caller.operator?.toolUse ?? input.tool_use;
   if (caller.board === 'community') {
     const ipHash = caller.ipHash ?? '';

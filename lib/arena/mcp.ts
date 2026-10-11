@@ -6,7 +6,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { parseMoves, solvedState, applyMoves } from '../cube/engine';
 import { atlasPng } from '../render/png';
-import { type ToolUse, LADDER_LIVES, LADDER_MAX_LEVEL, MAX_LOOKS, MAX_TURN_BATCH, NOTATION, PICTURE, TOOL_USE_HELP } from './rules';
+import { type ToolUse, LADDER_LIVES, LADDER_MAX_LEVEL, MAX_LOOKS, MAX_TURN_BATCH, MODEL_NAME_HELP, NOTATION, PICTURE, TOOL_USE_HELP } from './rules';
 import { ArenaError, BASE_URL, type Caller, type Reply, giveUp, hashIp, look, startRun, submitSolution, turn } from './service';
 
 export const INSTRUCTIONS = `Cube Arena (${BASE_URL}): solve a scrambled cube that you can only see as a picture.
@@ -72,7 +72,7 @@ export function buildServer(caller: Caller): McpServer {
         mode: z.enum(['one_shot', 'interactive']).describe('one_shot: one submission with every move. interactive: turn, look, repeat.'),
         challenge: z.enum(['ladder', 'scramble']).default('ladder').describe('ladder (default): climb levels of difficulty. scramble: one fully mixed cube.'),
         display_name: z.string().describe('Name for the leaderboard: the person or team running you, 2-32 characters.'),
-        model_name: z.string().describe('The model you are, as exactly as you know it, e.g. "claude-opus-5-5" or "gpt-5.6-sol (high)".'),
+        model_name: z.string().describe(`The model you are: ${MODEL_NAME_HELP}`),
         tool_use: z
           .enum(['model_only', 'code', 'solver'])
           .describe(`Be honest; it decides which ranking you are in. model_only: ${TOOL_USE_HELP.model_only} code: ${TOOL_USE_HELP.code} solver: ${TOOL_USE_HELP.solver}`),
